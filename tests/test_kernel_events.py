@@ -45,3 +45,36 @@ def test_event_rejects_non_portable_json():
             actor=actor,
             payload={"value": float("nan")},
         )
+
+
+def test_event_payload_is_deeply_immutable():
+    actor = AgentIdentity("physics-01", "v1", "specialist")
+    event = Event(
+        event_type="observation.recorded",
+        stream_id="investigation-1",
+        actor=actor,
+        payload={
+            "sensor": {"name": "MAP", "value": 42},
+            "samples": [1, 2, 3],
+        },
+    )
+
+    with pytest.raises(TypeError):
+        event.payload["sensor"] = {"name": "TPS"}
+
+    with pytest.raises(TypeError):
+        event.payload["sensor"]["value"] = 43
+
+    assert event.payload["samples"] == (1, 2, 3)
+
+
+def test_event_rejects_non_string_json_keys():
+    actor = AgentIdentity("physics-01", "v1", "specialist")
+
+    with pytest.raises(TypeError, match="keys must be strings"):
+        Event(
+            event_type="observation.recorded",
+            stream_id="investigation-1",
+            actor=actor,
+            payload={1: "not allowed"},
+        )
