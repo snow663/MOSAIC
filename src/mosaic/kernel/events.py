@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping as MappingABC
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 import json
+from types import MappingProxyType
 from typing import Any, Mapping
 from uuid import uuid4
 
@@ -20,6 +22,33 @@ def utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def _json_ready(value: Any) -> Any:
+    """Convert immutable event data back into ordinary JSON containers."""
+
+    if isinstance(value, MappingABC):
+        return {key: _json_ready(item) for key, item in value.items()}
+    if isinstance(value, tuple):
+        return [_json_ready(item) for item in value]
+    return value
+
+
+def _freeze_json(value: Any) -> Any:
+    """Recursively freeze JSON containers after validating string keys."""
+
+    if isinstance(value, MappingABC):
+        frozen: dict[str, Any] = {}
+        for key, item in value.items():
+            if not isinstance(key, str):
+                raise TypeError("JSON object keys must be strings")
+            frozen[key] = _freeze_json(item)
+        return MappingProxyType(frozen)
+
+    if isinstance(value, (list, tuple)):
+        return tuple(_freeze_json(item) for item in value)
+
+    return value
+
+
 def canonical_json(value: Any) -> str:
     """Serialize JSON deterministically for storage and hashing.
 
@@ -28,7 +57,7 @@ def canonical_json(value: Any) -> str:
     """
 
     return json.dumps(
-        value,
+        _json_ready(value),
         sort_keys=True,
         separators=(",", ":"),
         ensure_ascii=False,
@@ -68,7 +97,7 @@ class Event:
         if self.occurred_at.tzinfo is None:
             raise ValueError("occurred_at must be timezone-aware")
 
-        # Validate payloads now so a malformed event cannot reach persistence.
+        # Validate before freezing so malformed data never reaches persistence.
         canonical_json(self.payload)
         canonical_json(self.metadata)
 
@@ -79,3 +108,5 @@ class Event:
             "occurred_at",
             self.occurred_at.astimezone(timezone.utc),
         )
+        object.__setattr__(self, "payload", _freeze_json(self.payload))
+        object.__setattr__(self, "metadata", _freeze_json(self.metadata))
