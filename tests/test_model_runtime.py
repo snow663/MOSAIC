@@ -30,6 +30,14 @@ class ScriptedBackend:
             data = {
                 "question": "What causes the lean transient?",
                 "normalized_input": "Lean transient near 1.2 ms PW.",
+                "observations": [
+                    {
+                        "name": "reported_injector_pw",
+                        "value": 1.2,
+                        "unit": "ms",
+                        "uncertainty": None,
+                    }
+                ],
                 "tasks": [
                     {
                         "assigned_to": "mechanical-01:v1",
@@ -236,6 +244,7 @@ def test_model_backed_research_cycle_runs_end_to_end(tmp_path):
 
         assert len(result.findings) == 1
         assert len(result.promotions) == 1
+        assert len(investigation.observations) == 2
         assert len(investigation.hypotheses) == 1
         assert len(investigation.predictions) == 1
         assert "AE-disabled" in result.report.answer
