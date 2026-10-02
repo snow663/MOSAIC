@@ -5,12 +5,14 @@ from .kernel.events import Event
 from .kernel.identity import AgentIdentity, KERNEL_IDENTITY
 from .kernel.store import LedgerIntegrityError, SQLiteEventStore, StoredEvent
 from .knowledge import Hypothesis, Observation, Prediction, Relation, RelationType
+from .snapshot import InvestigationSnapshot
 
 __all__ = [
     "AgentIdentity",
     "Event",
     "Hypothesis",
     "Investigation",
+    "InvestigationSnapshot",
     "KERNEL_IDENTITY",
     "LedgerIntegrityError",
     "Observation",
