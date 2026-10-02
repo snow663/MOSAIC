@@ -75,6 +75,27 @@ class ThinkerTask:
         )
 
 
+
+@dataclass(frozen=True, slots=True)
+class ObservationDraft:
+    """A direct user-reported observation extracted during intake."""
+
+    name: str
+    value: Any
+    unit: str | None = None
+    uncertainty: float | None = None
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "name", _text(self.name, "name"))
+        if self.unit is not None:
+            object.__setattr__(self, "unit", _text(self.unit, "unit"))
+        if self.uncertainty is not None:
+            uncertainty = float(self.uncertainty)
+            if uncertainty < 0:
+                raise ValueError("uncertainty must be non-negative")
+            object.__setattr__(self, "uncertainty", uncertainty)
+
+
 @dataclass(frozen=True, slots=True)
 class InvestigationPlan:
     """Coordinator output that converts user input into neutral specialist work."""
@@ -83,6 +104,7 @@ class InvestigationPlan:
     question: str
     normalized_input: str
     tasks: tuple[ThinkerTask, ...]
+    observations: tuple[ObservationDraft, ...] = ()
     ambiguities: tuple[str, ...] = ()
     plan_id: str = field(default_factory=lambda: _id("PLAN"))
 
