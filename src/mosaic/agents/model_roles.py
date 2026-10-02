@@ -23,6 +23,7 @@ from .roles import (
     ExaminationResult,
     ExaminerReview,
     InvestigationPlan,
+    ObservationDraft,
     ThinkerProposal,
     ThinkerResponse,
     ThinkerTask,
@@ -365,17 +366,40 @@ class ModelCoordinator:
                 "constraints",
             ],
         )
+        observation_schema = _object_schema(
+            {
+                "name": {"type": "string"},
+                "value": _SCALAR_SCHEMA,
+                "unit": {
+                    "anyOf": [{"type": "string"}, {"type": "null"}]
+                },
+                "uncertainty": {
+                    "anyOf": [{"type": "number"}, {"type": "null"}]
+                },
+            },
+            ["name", "value", "unit", "uncertainty"],
+        )
         schema = _object_schema(
             {
                 "question": {"type": "string"},
                 "normalized_input": {"type": "string"},
+                "observations": {
+                    "type": "array",
+                    "items": observation_schema,
+                },
                 "tasks": {"type": "array", "items": task_schema},
                 "ambiguities": {
                     "type": "array",
                     "items": {"type": "string"},
                 },
             },
-            ["question", "normalized_input", "tasks", "ambiguities"],
+            [
+                "question",
+                "normalized_input",
+                "observations",
+                "tasks",
+                "ambiguities",
+            ],
         )
         data = await _call_json(
             backend=self.backend,
@@ -385,10 +409,12 @@ class ModelCoordinator:
             system=(
                 "You are the MOSAIC Coordinator. Act as a restrained professional "
                 "interface, not a scientific reasoner. Convert user input into a "
-                "neutral investigation question and route neutral tasks to relevant "
-                "Thinkers. Do not originate hypotheses, suggest likely answers, or "
-                "contaminate one specialist with another specialist's view. Return "
-                "only the requested JSON."
+                "neutral investigation question, extract only direct user-reported "
+                "observations, and route neutral tasks to relevant Thinkers. Never "
+                "convert an inferred mechanism or interpretation into an observation. "
+                "Do not originate hypotheses, suggest likely answers, or contaminate "
+                "one specialist with another specialist's view. Return only the "
+                "requested JSON."
             ),
             payload={
                 "user_input": user_input,
@@ -403,6 +429,23 @@ class ModelCoordinator:
             coordinator_ref=self.identity.ref,
             question=str(data["question"]),
             normalized_input=str(data["normalized_input"]),
+            observations=tuple(
+                ObservationDraft(
+                    name=str(item["name"]),
+                    value=item.get("value"),
+                    unit=(
+                        None
+                        if item.get("unit") is None
+                        else str(item["unit"])
+                    ),
+                    uncertainty=(
+                        None
+                        if item.get("uncertainty") is None
+                        else float(item["uncertainty"])
+                    ),
+                )
+                for item in data.get("observations", [])
+            ),
             tasks=tuple(
                 ThinkerTask(
                     assigned_to=str(item["assigned_to"]),
