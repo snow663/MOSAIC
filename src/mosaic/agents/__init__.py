@@ -14,6 +14,13 @@ from .contracts import (
 from .coordination import CoordinatorProtocolError, CoordinatorSession
 from .examination import ExaminationLimitError, PrivateExamination
 from .independent import AgentProtocolError, IndependentPass
+from .model_roles import (
+    ModelCoordinator,
+    ModelCrossDomainReviewer,
+    ModelExaminer,
+    ModelThinker,
+    StructuredOutputError,
+)
 from .roles import (
     Coordinator,
     CoordinatorReport,
@@ -24,11 +31,13 @@ from .roles import (
     Examiner,
     ExaminerReview,
     InvestigationPlan,
+    ObservationDraft,
     Thinker,
     ThinkerProposal,
     ThinkerResponse,
     ThinkerTask,
 )
+from .runtime import ResearchCycle, ResearchCycleResult
 from .synthesis import (
     CrossDomainReviewer,
     CrossDomainSynthesis,
@@ -66,15 +75,23 @@ __all__ = [
     "IndependentPass",
     "InvestigationPlan",
     "MinorityReport",
+    "ObservationDraft",
     "ModelBackend",
+    "ModelCoordinator",
+    "ModelCrossDomainReviewer",
+    "ModelExaminer",
     "ModelRequest",
     "ModelResponse",
+    "ModelThinker",
     "PredictionProposal",
     "PrivateExamination",
     "PromotionCandidate",
     "PromotionExecutor",
     "PromotionRecord",
     "ResearchAgent",
+    "ResearchCycle",
+    "ResearchCycleResult",
+    "StructuredOutputError",
     "SynthesisProtocolError",
     "SynthesisSession",
     "Thinker",

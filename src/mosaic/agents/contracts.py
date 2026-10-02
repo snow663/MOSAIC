@@ -149,6 +149,7 @@ class ModelRequest:
     system: str
     input_text: str
     response_schema_name: str | None = None
+    response_schema: Mapping[str, Any] | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "model", _require_text(self.model, "model"))
@@ -158,6 +159,21 @@ class ModelRequest:
             "input_text",
             _require_text(self.input_text, "input_text"),
         )
+        if self.response_schema_name is not None:
+            object.__setattr__(
+                self,
+                "response_schema_name",
+                _require_text(
+                    self.response_schema_name,
+                    "response_schema_name",
+                ),
+            )
+        if self.response_schema is not None:
+            object.__setattr__(
+                self,
+                "response_schema",
+                MappingProxyType(dict(self.response_schema)),
+            )
 
 
 @dataclass(frozen=True, slots=True)
