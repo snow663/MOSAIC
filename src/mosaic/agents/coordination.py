@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
+from typing import Any
 
 from mosaic.snapshot import InvestigationSnapshot
 
@@ -67,11 +68,19 @@ class CoordinatorSession:
         coordinator: Coordinator,
         snapshot: InvestigationSnapshot,
         findings: Sequence[ExaminationResult],
+        synthesis_context: Mapping[str, Any] | None = None,
     ) -> CoordinatorReport:
         if not findings:
             raise ValueError("at least one examined finding is required")
 
-        report = await coordinator.report(snapshot, findings)
+        if synthesis_context is None:
+            report = await coordinator.report(snapshot, findings)
+        else:
+            report = await coordinator.report(
+                snapshot,
+                findings,
+                synthesis_context,
+            )
 
         if report.coordinator_ref != coordinator.identity.ref:
             raise CoordinatorProtocolError(
