@@ -25,6 +25,7 @@ from mosaic.knowledge.relations import (
     Relation,
     RelationType,
 )
+from mosaic.snapshot import InvestigationSnapshot
 
 
 class Investigation:
@@ -196,6 +197,18 @@ class Investigation:
         )
         self._append_and_apply(event)
         return self.relations[-1]
+
+    def snapshot(self) -> InvestigationSnapshot:
+        """Return a frozen point-in-time view for independent analysis."""
+
+        return InvestigationSnapshot(
+            investigation_id=self.investigation_id,
+            ledger_sequence=self.last_sequence,
+            observations=tuple(self.observations.values()),
+            hypotheses=tuple(self.hypotheses.values()),
+            predictions=tuple(self.predictions.values()),
+            relations=tuple(self.relations),
+        )
 
     def predictions_for(self, hypothesis_id: str) -> tuple[Prediction, ...]:
         return tuple(
