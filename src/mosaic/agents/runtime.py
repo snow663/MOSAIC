@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Mapping
 
 from mosaic.investigation import Investigation
+from mosaic.kernel.events import Event
 
 from .coordination import CoordinatorSession
 from .examination import PrivateExamination
@@ -109,13 +110,47 @@ class ResearchCycle:
     ) -> ResearchCycleResult:
         """Run one complete MOSAIC reasoning cycle."""
 
-        source_snapshot = investigation.snapshot()
+        intake_snapshot = investigation.snapshot()
         plan = await CoordinatorSession.intake(
             coordinator=self.coordinator,
             user_input=user_input,
-            snapshot=source_snapshot,
+            snapshot=intake_snapshot,
             available_thinkers=tuple(self.thinkers.values()),
         )
+
+        investigation.store.append(
+            Event(
+                event_type="coordinator.intake_completed",
+                stream_id=investigation.investigation_id,
+                actor=self.coordinator.identity,
+                correlation_id=plan.plan_id,
+                payload={
+                    "plan_id": plan.plan_id,
+                    "raw_user_input": user_input,
+                    "normalized_input": plan.normalized_input,
+                    "question": plan.question,
+                    "ambiguities": list(plan.ambiguities),
+                    "task_ids": [task.task_id for task in plan.tasks],
+                    "observation_count": len(plan.observations),
+                },
+            )
+        )
+
+        for draft in plan.observations:
+            investigation.record_observation(
+                name=draft.name,
+                value=draft.value,
+                unit=draft.unit,
+                uncertainty=draft.uncertainty,
+                source=f"user_input:{plan.plan_id}",
+                actor=self.coordinator.identity,
+            )
+
+        # Direct audit writes do not mutate the in-memory Investigation state.
+        # Replay once so every Thinker receives the same snapshot containing
+        # all observations extracted from the current user input.
+        investigation.replay()
+        source_snapshot = investigation.snapshot()
 
         examination = PrivateExamination(
             audit_store=investigation.store,
