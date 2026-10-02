@@ -290,6 +290,7 @@ class Coordinator(Protocol):
         self,
         snapshot: InvestigationSnapshot,
         findings: Sequence[ExaminationResult],
+        synthesis_context: Mapping[str, Any] | None = None,
     ) -> CoordinatorReport:
         ...
 
