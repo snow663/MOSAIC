@@ -101,3 +101,23 @@ def test_agent_identities_must_be_unique():
 
     with pytest.raises(ValueError, match="must be unique"):
         IndependentPass([a, b])
+
+
+def test_snapshot_captures_point_in_time_state(tmp_path):
+    with SQLiteEventStore(tmp_path / "research.db") as store:
+        investigation = Investigation(store, "snapshot-test")
+        obs = investigation.record_observation(
+            name="map",
+            value=42,
+            unit="kPa",
+            source="logger",
+        )
+
+        snapshot = investigation.snapshot()
+
+        assert snapshot.investigation_id == "snapshot-test"
+        assert snapshot.ledger_sequence == investigation.last_sequence
+        assert snapshot.observations == (obs,)
+        assert snapshot.hypotheses == ()
+        assert snapshot.predictions == ()
+        assert snapshot.relations == ()
