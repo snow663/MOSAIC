@@ -265,11 +265,17 @@ class ExaminationResult:
 
 @dataclass(frozen=True, slots=True)
 class CoordinatorReport:
-    """Professional user-facing synthesis produced from examined findings."""
+    """Structured professional report produced from examined findings."""
 
     coordinator_ref: str
     answer: str
     finding_ids: tuple[str, ...]
+    observations: tuple[str, ...] = ()
+    established: tuple[str, ...] = ()
+    surviving_hypotheses: tuple[str, ...] = ()
+    key_test: str | None = None
+    examiner_status: tuple[str, ...] = ()
+    unresolved_questions: tuple[str, ...] = ()
     caveats: tuple[str, ...] = ()
     report_id: str = field(default_factory=lambda: _id("REPORT"))
 
@@ -285,11 +291,28 @@ class CoordinatorReport:
             "finding_ids",
             tuple(_text(item, "finding_id") for item in self.finding_ids),
         )
-        object.__setattr__(
-            self,
-            "caveats",
-            tuple(_text(item, "caveat") for item in self.caveats),
-        )
+        for field_name, item_name in (
+            ("observations", "observation"),
+            ("established", "established statement"),
+            ("surviving_hypotheses", "surviving hypothesis"),
+            ("examiner_status", "examiner status"),
+            ("unresolved_questions", "unresolved question"),
+            ("caveats", "caveat"),
+        ):
+            object.__setattr__(
+                self,
+                field_name,
+                tuple(
+                    _text(item, item_name)
+                    for item in getattr(self, field_name)
+                ),
+            )
+        if self.key_test is not None:
+            object.__setattr__(
+                self,
+                "key_test",
+                _text(self.key_test, "key_test"),
+            )
 
 
 ExaminerReview: TypeAlias = ExaminationChallenge | ExaminationResult
