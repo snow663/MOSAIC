@@ -1,67 +1,90 @@
 # Hosted model quick start
 
-MOSAIC can now run its institutional roles against an OpenAI-compatible
-Chat Completions endpoint.
+MOSAIC can run its institutional roles against an OpenAI-compatible Chat
+Completions endpoint.
 
-The backend is intentionally provider-neutral. The same runtime can point at a
-hosted service now and a compatible local server later.
+The backend is provider-neutral. The same runtime can point at a hosted service
+now and a compatible local server later.
 
 ## Configuration
 
 Install the project in editable mode:
 
-\`\`\`bash
+```bash
 python -m pip install -e ".[dev]"
-\`\`\`
+```
 
 Set a model name:
 
-\`\`\`bash
+```bash
 export MOSAIC_MODEL="<provider-model-name>"
-\`\`\`
+```
 
-For the OpenAI API, the default base URL is already
-\`https://api.openai.com/v1\`. Supply the key through either:
+For the OpenAI API, the default base URL is `https://api.openai.com/v1`.
+Supply the key through either:
 
-\`\`\`bash
+```bash
 export OPENAI_API_KEY="..."
-\`\`\`
+```
 
 or:
 
-\`\`\`bash
+```bash
 export MOSAIC_API_KEY="..."
-\`\`\`
+```
 
 For another OpenAI-compatible server:
 
-\`\`\`bash
+```bash
 export MOSAIC_BASE_URL="https://provider.example/v1"
 export MOSAIC_MODEL="<model>"
 export MOSAIC_API_KEY="..."
-\`\`\`
+```
 
 The adapter does not write credentials into MOSAIC's ledger.
 
-## Run
+## Run a fresh investigation
 
-\`\`\`bash
+```bash
 python examples/hosted_cycle.py \
   "At light throttle near 1.2 ms injector pulse width it goes lean briefly."
-\`\`\`
+```
 
-By default the example writes the append-only event ledger to \`mosaic.db\`.
-Override it with:
+Every invocation creates a fresh investigation stream by default. The CLI prints
+the generated ID, for example:
 
-\`\`\`bash
+```text
+[INVESTIGATION] INV-20261003-051412-a8f3c219 (new)
+```
+
+The append-only event ledger still defaults to `mosaic.db`, so multiple
+independent investigations can live in the same database without contaminating
+one another.
+
+Override the database path with:
+
+```bash
 export MOSAIC_DB="/path/to/investigation.db"
-\`\`\`
+```
+
+## Continue an existing investigation
+
+Continuation is explicit:
+
+```bash
+python examples/hosted_cycle.py \
+  --continue INV-20261003-051412-a8f3c219 \
+  "I repeated the test with AE disabled and the lean event remained."
+```
+
+If the requested investigation ID does not exist in the configured database,
+the CLI exits instead of silently starting a new stream.
 
 ## What happens
 
 One invocation runs:
 
-\`\`\`text
+```text
 user input
    |
 Coordinator intake
@@ -79,16 +102,21 @@ cross-domain synthesis
 controlled graph promotion
    |
 Coordinator report
-\`\`\`
+```
 
 All language roles may use the same configured model. They remain separate
 institutional agents because their identities, prompts, contexts, duties, and
 validation boundaries are distinct.
 
+Role-specific model contexts are intentionally compact. Thinkers and Examiners
+receive task-relevant observations plus prior institutional claims; synthesis
+receives examined findings without audit-heavy fields; the final Coordinator
+receives concise findings and synthesis rather than the full promoted graph.
+
 ## Local migration
 
 To move the same runtime to a local compatible server, change
-\`MOSAIC_BASE_URL\` and \`MOSAIC_MODEL\`. If the local server does not support
+`MOSAIC_BASE_URL` and `MOSAIC_MODEL`. If the local server does not support
 strict JSON-schema response formatting, instantiate
-\`OpenAICompatibleBackend(..., structured_outputs=False)\` to use JSON-object
+`OpenAICompatibleBackend(..., structured_outputs=False)` to use JSON-object
 mode while retaining MOSAIC-side validation.
