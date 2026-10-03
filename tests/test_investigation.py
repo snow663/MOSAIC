@@ -28,6 +28,8 @@ def test_investigation_round_trip_replay(tmp_path, mechanical):
             unit="ms",
             source="ALDL log",
             uncertainty=0.01,
+            context_id="CTX-transient-1",
+            context_label="reported lean transient",
         )
         hypothesis = investigation.propose_hypothesis(
             claim="Low-pulse-width injector nonlinearity causes the transient",
@@ -55,6 +57,8 @@ def test_investigation_round_trip_replay(tmp_path, mechanical):
         replayed = Investigation(store, "efi-test-001")
 
         assert replayed.observations[obs.observation_id] == obs
+        assert obs.context_id == "CTX-transient-1"
+        assert obs.context_label == "reported lean transient"
         assert replayed.hypotheses[hypothesis.hypothesis_id] == hypothesis
         assert replayed.predictions[prediction.prediction_id] == prediction
         assert replayed.relations == [relation]
@@ -131,3 +135,17 @@ def test_investigation_streams_are_isolated(tmp_path, mechanical):
 
         assert set(a_replayed.observations) == {obs_a.observation_id}
         assert set(b_replayed.observations) == {obs_b.observation_id}
+
+
+def test_observation_context_requires_id_and_label_together(tmp_path):
+    with SQLiteEventStore(tmp_path / "research.db") as store:
+        investigation = Investigation(store, "context-validation")
+
+        with pytest.raises(ValueError, match="supplied together"):
+            investigation.record_observation(
+                name="rpm",
+                value=3200,
+                unit="rpm",
+                source="user",
+                context_id="CTX-only",
+            )
