@@ -40,7 +40,17 @@ class ScriptedBackend:
                         "value": 1.2,
                         "unit": "ms",
                         "uncertainty": None,
-                    }
+                        "context_key": "lean_event",
+                        "context_label": "reported lean event near 1.2 ms",
+                    },
+                    {
+                        "name": "reported_mixture_condition",
+                        "value": "lean briefly",
+                        "unit": None,
+                        "uncertainty": None,
+                        "context_key": "lean_event",
+                        "context_label": "reported lean event near 1.2 ms",
+                    },
                 ],
                 "tasks": [
                     {
@@ -55,7 +65,11 @@ class ScriptedBackend:
             }
 
         elif name == "mosaic_thinker_proposal":
-            assert len(payload["investigation"]["observations"]) == 2
+            assert len(payload["investigation"]["observations"]) == 3
+            events = payload["investigation"]["reported_events"]
+            assert len(events) == 1
+            assert events[0]["label"] == "reported lean event near 1.2 ms"
+            assert len(events[0]["observation_ids"]) == 2
             data = {
                 "summary": "Wall-film depletion is plausible.",
                 "hypotheses": [
@@ -84,6 +98,7 @@ class ScriptedBackend:
             assert "predictions" not in payload["investigation"]
             assert "relations" not in payload["investigation"]
             assert "observations" in payload["investigation"]
+            assert len(payload["investigation"]["reported_events"]) == 1
             self.examiner_calls += 1
             if self.examiner_calls == 1:
                 data = {
@@ -274,7 +289,17 @@ def test_model_backed_research_cycle_runs_end_to_end(tmp_path):
 
         assert len(result.findings) == 1
         assert len(result.promotions) == 1
-        assert len(investigation.observations) == 2
+        assert len(investigation.observations) == 3
+        contextual = [
+            item
+            for item in investigation.observations.values()
+            if item.context_id is not None
+        ]
+        assert len(contextual) == 2
+        assert len({item.context_id for item in contextual}) == 1
+        assert {
+            item.context_label for item in contextual
+        } == {"reported lean event near 1.2 ms"}
         assert len(investigation.hypotheses) == 1
         assert len(investigation.predictions) == 1
         assert "AE-disabled" in result.report.answer
