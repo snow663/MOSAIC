@@ -151,55 +151,6 @@ def _proposal_payload(proposal: ThinkerProposal) -> dict[str, Any]:
     }
 
 
-def _snapshot_payload(snapshot: InvestigationSnapshot) -> dict[str, Any]:
-    return {
-        "investigation_id": snapshot.investigation_id,
-        "ledger_sequence": snapshot.ledger_sequence,
-        "observations": [
-            {
-                "observation_id": item.observation_id,
-                "name": item.name,
-                "value": _json_ready(item.value),
-                "unit": item.unit,
-                "source": item.source,
-                "uncertainty": item.uncertainty,
-            }
-            for item in snapshot.observations
-        ],
-        "hypotheses": [
-            {
-                "hypothesis_id": item.hypothesis_id,
-                "claim": item.claim,
-                "initial_confidence": item.initial_confidence,
-                "proposed_by": item.proposed_by,
-            }
-            for item in snapshot.hypotheses
-        ],
-        "predictions": [
-            {
-                "prediction_id": item.prediction_id,
-                "hypothesis_id": item.hypothesis_id,
-                "statement": item.statement,
-                "confidence": item.confidence,
-                "conditions": _json_ready(item.conditions),
-                "created_by": item.created_by,
-            }
-            for item in snapshot.predictions
-        ],
-        "relations": [
-            {
-                "relation_id": item.relation_id,
-                "source_id": item.source_id,
-                "target_id": item.target_id,
-                "relation_type": item.relation_type.value,
-                "rationale": item.rationale,
-                "created_by": item.created_by,
-            }
-            for item in snapshot.relations
-        ],
-    }
-
-
 def _observation_payload(item: Any) -> dict[str, Any]:
     return {
         "observation_id": item.observation_id,
@@ -342,46 +293,6 @@ def _examiner_status(
             f"{disposition}{suffix}"
         )
     return tuple(statuses)
-
-
-def _finding_payload(finding: ExaminationResult) -> dict[str, Any]:
-    return {
-        "examination_id": finding.examination_id,
-        "examiner_ref": finding.examiner_ref,
-        "thinker_ref": finding.thinker_ref,
-        "task_id": finding.task_id,
-        "disposition": finding.disposition.value,
-        "findings_summary": finding.findings_summary,
-        "reservations": list(finding.reservations),
-        "unresolved_questions": list(finding.unresolved_questions),
-        "statistics": _json_ready(finding.statistics),
-        "proposal": _proposal_payload(finding.proposal),
-    }
-
-
-def _transcript_payload(
-    transcript: tuple[ExaminationExchange, ...],
-) -> list[dict[str, Any]]:
-    return [
-        {
-            "challenge": {
-                "challenge_id": exchange.challenge.challenge_id,
-                "question": exchange.challenge.question,
-                "targeted_claim": exchange.challenge.targeted_claim,
-                "evidence_refs": list(exchange.challenge.evidence_refs),
-            },
-            "response": {
-                "response_id": exchange.response.response_id,
-                "answer": exchange.response.answer,
-                "revised_proposal_id": (
-                    None
-                    if exchange.response.revised_proposal is None
-                    else exchange.response.revised_proposal.proposal_id
-                ),
-            },
-        }
-        for exchange in transcript
-    ]
 
 
 async def _call_json(
