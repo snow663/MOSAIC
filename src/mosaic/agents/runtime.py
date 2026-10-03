@@ -31,7 +31,6 @@ from .synthesis import (
 )
 
 
-@dataclass(frozen=True, slots=True)
 ReviewInputProvider = Callable[[ReviewRequest], Awaitable[str | None]]
 
 
