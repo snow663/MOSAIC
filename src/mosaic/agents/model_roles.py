@@ -304,7 +304,6 @@ async def _call_json(
     schema_name: str,
     schema: Mapping[str, Any],
     usage_tag: str | None = None,
-    max_output_tokens: int | None = None,
 ) -> dict[str, Any]:
     response = await backend.generate(
         ModelRequest(
@@ -318,7 +317,6 @@ async def _call_json(
             response_schema_name=schema_name,
             response_schema=schema,
             usage_tag=usage_tag,
-            max_output_tokens=max_output_tokens,
         )
     )
     try:
@@ -465,7 +463,6 @@ class ModelCoordinator:
             model=self.model,
             schema_name="mosaic_coordinator_intake",
             usage_tag=f"{self.identity.ref}:intake",
-            max_output_tokens=1000,
             schema=schema,
             system=(
                 "You are the MOSAIC Coordinator. Act as a restrained professional "
@@ -586,7 +583,6 @@ class ModelCoordinator:
             model=self.model,
             schema_name="mosaic_coordinator_report",
             usage_tag=f"{self.identity.ref}:report",
-            max_output_tokens=1200,
             schema=schema,
             system=(
                 "You are the MOSAIC Coordinator in reporting mode. Produce a "
@@ -689,7 +685,6 @@ class ModelThinker:
             model=self.model,
             schema_name="mosaic_thinker_proposal",
             usage_tag=f"{self.identity.ref}:investigate",
-            max_output_tokens=1800,
             schema=_proposal_schema(),
             system=self._system,
             payload={
@@ -733,7 +728,6 @@ class ModelThinker:
             model=self.model,
             schema_name="mosaic_thinker_examination_response",
             usage_tag=f"{self.identity.ref}:examination_response",
-            max_output_tokens=1400,
             schema=schema,
             system=(
                 self._system
@@ -874,7 +868,6 @@ class ModelExaminer:
             model=self.model,
             schema_name="mosaic_examiner_review",
             usage_tag=f"{self.identity.ref}:review",
-            max_output_tokens=1100,
             schema=schema,
             system=(
                 "You are the MOSAIC Examiner. You are an epistemic gatekeeper, "
@@ -1073,7 +1066,6 @@ class ModelCrossDomainReviewer:
             model=self.model,
             schema_name="mosaic_cross_domain_synthesis",
             usage_tag=f"{self.identity.ref}:synthesis",
-            max_output_tokens=1600,
             schema=schema,
             system=(
                 "You are the MOSAIC cross-domain reviewer. Compare only the "
