@@ -248,6 +248,7 @@ async def _call_json(
     payload: Mapping[str, Any],
     schema_name: str,
     schema: Mapping[str, Any],
+    usage_tag: str | None = None,
 ) -> dict[str, Any]:
     response = await backend.generate(
         ModelRequest(
@@ -260,6 +261,7 @@ async def _call_json(
             ),
             response_schema_name=schema_name,
             response_schema=schema,
+            usage_tag=usage_tag,
         )
     )
     try:
@@ -405,6 +407,7 @@ class ModelCoordinator:
             backend=self.backend,
             model=self.model,
             schema_name="mosaic_coordinator_intake",
+            usage_tag=f"{self.identity.ref}:intake",
             schema=schema,
             system=(
                 "You are the MOSAIC Coordinator. Act as a restrained professional "
@@ -481,25 +484,63 @@ class ModelCoordinator:
                     "type": "array",
                     "items": {"type": "string", "enum": finding_ids},
                 },
+                "observations": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                },
+                "established": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                },
+                "surviving_hypotheses": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                },
+                "key_test": {
+                    "anyOf": [{"type": "string"}, {"type": "null"}]
+                },
+                "examiner_status": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                },
+                "unresolved_questions": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                },
                 "caveats": {
                     "type": "array",
                     "items": {"type": "string"},
                 },
             },
-            ["answer", "finding_ids", "caveats"],
+            [
+                "answer",
+                "finding_ids",
+                "observations",
+                "established",
+                "surviving_hypotheses",
+                "key_test",
+                "examiner_status",
+                "unresolved_questions",
+                "caveats",
+            ],
         )
         data = await _call_json(
             backend=self.backend,
             model=self.model,
             schema_name="mosaic_coordinator_report",
+            usage_tag=f"{self.identity.ref}:report",
             schema=schema,
             system=(
                 "You are the MOSAIC Coordinator in reporting mode. Produce a "
-                "professional, faithful user-facing report from examined findings "
-                "and cross-domain synthesis. Do not invent scientific conclusions, "
-                "alter confidence, suppress minority findings, or hide unresolved "
-                "questions. Represent every supplied finding. Return only the "
-                "requested JSON."
+                "professional, faithful structured report from examined findings "
+                "and cross-domain synthesis. Keep answer to a short current-finding "
+                "summary. Put raw reported facts under observations, statements "
+                "actually supported by the evidence under established, plausible "
+                "surviving mechanisms under surviving_hypotheses, and name the "
+                "single most discriminating next test under key_test when one is "
+                "available. Do not invent scientific conclusions, alter confidence, "
+                "suppress minority findings, or hide unresolved questions. Represent "
+                "every supplied finding. Return only the requested JSON."
             ),
             payload={
                 "investigation": _snapshot_payload(snapshot),
@@ -516,6 +557,28 @@ class ModelCoordinator:
             answer=str(data["answer"]),
             finding_ids=tuple(
                 str(item) for item in data.get("finding_ids", [])
+            ),
+            observations=tuple(
+                str(item) for item in data.get("observations", [])
+            ),
+            established=tuple(
+                str(item) for item in data.get("established", [])
+            ),
+            surviving_hypotheses=tuple(
+                str(item)
+                for item in data.get("surviving_hypotheses", [])
+            ),
+            key_test=(
+                None
+                if data.get("key_test") is None
+                else str(data["key_test"])
+            ),
+            examiner_status=tuple(
+                str(item) for item in data.get("examiner_status", [])
+            ),
+            unresolved_questions=tuple(
+                str(item)
+                for item in data.get("unresolved_questions", [])
             ),
             caveats=tuple(str(item) for item in data.get("caveats", [])),
         )
@@ -560,6 +623,7 @@ class ModelThinker:
             backend=self.backend,
             model=self.model,
             schema_name="mosaic_thinker_proposal",
+            usage_tag=f"{self.identity.ref}:investigate",
             schema=_proposal_schema(),
             system=self._system,
             payload={
@@ -599,6 +663,7 @@ class ModelThinker:
             backend=self.backend,
             model=self.model,
             schema_name="mosaic_thinker_examination_response",
+            usage_tag=f"{self.identity.ref}:examination_response",
             schema=schema,
             system=(
                 self._system
@@ -732,6 +797,7 @@ class ModelExaminer:
             backend=self.backend,
             model=self.model,
             schema_name="mosaic_examiner_review",
+            usage_tag=f"{self.identity.ref}:review",
             schema=schema,
             system=(
                 "You are the MOSAIC Examiner. You are an epistemic gatekeeper, "
@@ -922,6 +988,7 @@ class ModelCrossDomainReviewer:
             backend=self.backend,
             model=self.model,
             schema_name="mosaic_cross_domain_synthesis",
+            usage_tag=f"{self.identity.ref}:synthesis",
             schema=schema,
             system=(
                 "You are the MOSAIC cross-domain reviewer. Compare only the "
