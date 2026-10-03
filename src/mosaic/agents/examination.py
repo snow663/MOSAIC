@@ -243,8 +243,6 @@ class PrivateExamination:
                 actor_ref=examiner.identity.ref,
                 task_id=task.task_id,
                 round=round_number,
-                challenge_category=review.category.value,
-                decision_impact=review.decision_impact,
             )
             review = await examiner.examine(
                 snapshot,
@@ -335,6 +333,8 @@ class PrivateExamination:
                 actor_ref=examiner.identity.ref,
                 task_id=task.task_id,
                 round=round_number,
+                challenge_category=review.category.value,
+                decision_impact=review.decision_impact,
             )
             emit_progress(
                 self.progress,
