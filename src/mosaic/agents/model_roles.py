@@ -151,93 +151,148 @@ def _proposal_payload(proposal: ThinkerProposal) -> dict[str, Any]:
     }
 
 
-def _snapshot_payload(snapshot: InvestigationSnapshot) -> dict[str, Any]:
+def _observation_payload(item: Any) -> dict[str, Any]:
     return {
-        "investigation_id": snapshot.investigation_id,
-        "ledger_sequence": snapshot.ledger_sequence,
-        "observations": [
-            {
-                "observation_id": item.observation_id,
-                "name": item.name,
-                "value": _json_ready(item.value),
-                "unit": item.unit,
-                "source": item.source,
-                "uncertainty": item.uncertainty,
-            }
-            for item in snapshot.observations
-        ],
-        "hypotheses": [
-            {
-                "hypothesis_id": item.hypothesis_id,
-                "claim": item.claim,
-                "initial_confidence": item.initial_confidence,
-                "proposed_by": item.proposed_by,
-            }
-            for item in snapshot.hypotheses
-        ],
-        "predictions": [
-            {
-                "prediction_id": item.prediction_id,
-                "hypothesis_id": item.hypothesis_id,
-                "statement": item.statement,
-                "confidence": item.confidence,
-                "conditions": _json_ready(item.conditions),
-                "created_by": item.created_by,
-            }
-            for item in snapshot.predictions
-        ],
-        "relations": [
-            {
-                "relation_id": item.relation_id,
-                "source_id": item.source_id,
-                "target_id": item.target_id,
-                "relation_type": item.relation_type.value,
-                "rationale": item.rationale,
-                "created_by": item.created_by,
-            }
-            for item in snapshot.relations
-        ],
+        "observation_id": item.observation_id,
+        "name": item.name,
+        "value": _json_ready(item.value),
+        "unit": item.unit,
+        "source": item.source,
+        "uncertainty": item.uncertainty,
     }
 
 
-def _finding_payload(finding: ExaminationResult) -> dict[str, Any]:
+def _observation_context(
+    snapshot: InvestigationSnapshot,
+    observation_ids: Sequence[str] = (),
+    *,
+    include_prior_hypotheses: bool = False,
+) -> dict[str, Any]:
+    wanted = set(observation_ids)
+    selected = [
+        item
+        for item in snapshot.observations
+        if not wanted or item.observation_id in wanted
+    ]
+    payload: dict[str, Any] = {
+        "investigation_id": snapshot.investigation_id,
+        "ledger_sequence": snapshot.ledger_sequence,
+        "observations": [
+            _observation_payload(item)
+            for item in selected
+        ],
+    }
+    if include_prior_hypotheses:
+        payload["existing_hypotheses"] = [
+            {
+                "hypothesis_id": item.hypothesis_id,
+                "claim": item.claim,
+                "confidence": item.initial_confidence,
+                "proposed_by": item.proposed_by,
+            }
+            for item in snapshot.hypotheses
+        ]
+    return payload
+
+
+def _synthesis_finding_payload(
+    finding: ExaminationResult,
+) -> dict[str, Any]:
     return {
         "examination_id": finding.examination_id,
-        "examiner_ref": finding.examiner_ref,
         "thinker_ref": finding.thinker_ref,
-        "task_id": finding.task_id,
         "disposition": finding.disposition.value,
         "findings_summary": finding.findings_summary,
         "reservations": list(finding.reservations),
         "unresolved_questions": list(finding.unresolved_questions),
-        "statistics": _json_ready(finding.statistics),
-        "proposal": _proposal_payload(finding.proposal),
+        "hypotheses": [
+            {
+                "index": index,
+                "claim": hypothesis.claim,
+                "confidence": hypothesis.confidence,
+                "rationale": hypothesis.rationale,
+                "predictions": [
+                    {
+                        "statement": prediction.statement,
+                        "confidence": prediction.confidence,
+                    }
+                    for prediction in hypothesis.predictions
+                ],
+            }
+            for index, hypothesis in enumerate(finding.proposal.hypotheses)
+        ],
     }
 
 
-def _transcript_payload(
+def _report_finding_payload(
+    finding: ExaminationResult,
+) -> dict[str, Any]:
+    return {
+        "examination_id": finding.examination_id,
+        "thinker_ref": finding.thinker_ref,
+        "disposition": finding.disposition.value,
+        "challenge_rounds": len(finding.transcript),
+        "findings_summary": finding.findings_summary,
+        "reservations": list(finding.reservations),
+        "unresolved_questions": list(finding.unresolved_questions),
+        "hypotheses": [
+            {
+                "claim": hypothesis.claim,
+                "confidence": hypothesis.confidence,
+            }
+            for hypothesis in finding.proposal.hypotheses
+        ],
+    }
+
+
+def _compact_transcript(
     transcript: tuple[ExaminationExchange, ...],
 ) -> list[dict[str, Any]]:
     return [
         {
-            "challenge": {
-                "challenge_id": exchange.challenge.challenge_id,
-                "question": exchange.challenge.question,
-                "targeted_claim": exchange.challenge.targeted_claim,
-                "evidence_refs": list(exchange.challenge.evidence_refs),
-            },
-            "response": {
-                "response_id": exchange.response.response_id,
-                "answer": exchange.response.answer,
-                "revised_proposal_id": (
-                    None
-                    if exchange.response.revised_proposal is None
-                    else exchange.response.revised_proposal.proposal_id
-                ),
-            },
+            "question": exchange.challenge.question,
+            "targeted_claim": exchange.challenge.targeted_claim,
+            "answer": exchange.response.answer,
         }
         for exchange in transcript
     ]
+
+
+def _thinker_label(thinker_ref: str) -> str:
+    agent_id = thinker_ref.split(":", 1)[0]
+    labels = {
+        "mechanical": "Mechanical",
+        "mechanical-01": "Mechanical",
+        "electrical-controls": "Electrical/Controls",
+        "electrical-01": "Electrical",
+        "physics": "Physics",
+        "physics-01": "Physics",
+        "experimental": "Experimental/Statistics",
+        "experimental-01": "Experimental/Statistics",
+    }
+    return labels.get(
+        agent_id,
+        agent_id.replace("-", " ").title(),
+    )
+
+
+def _examiner_status(
+    findings: Sequence[ExaminationResult],
+) -> tuple[str, ...]:
+    statuses: list[str] = []
+    for finding in findings:
+        disposition = finding.disposition.value.replace("_", " ").upper()
+        rounds = len(finding.transcript)
+        suffix = ""
+        if rounds == 1:
+            suffix = ", 1 challenge"
+        elif rounds > 1:
+            suffix = f", {rounds} challenges"
+        statuses.append(
+            f"{_thinker_label(finding.thinker_ref)} - "
+            f"{disposition}{suffix}"
+        )
+    return tuple(statuses)
 
 
 async def _call_json(
@@ -421,7 +476,10 @@ class ModelCoordinator:
             ),
             payload={
                 "user_input": user_input,
-                "investigation": _snapshot_payload(snapshot),
+                "investigation": _observation_context(
+                    snapshot,
+                    include_prior_hypotheses=True,
+                ),
                 "available_thinkers": [
                     {"ref": ref, "description": description}
                     for ref, description in self.thinker_catalog.items()
@@ -499,10 +557,6 @@ class ModelCoordinator:
                 "key_test": {
                     "anyOf": [{"type": "string"}, {"type": "null"}]
                 },
-                "examiner_status": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                },
                 "unresolved_questions": {
                     "type": "array",
                     "items": {"type": "string"},
@@ -519,7 +573,6 @@ class ModelCoordinator:
                 "established",
                 "surviving_hypotheses",
                 "key_test",
-                "examiner_status",
                 "unresolved_questions",
                 "caveats",
             ],
@@ -540,12 +593,15 @@ class ModelCoordinator:
                 "single most discriminating next test under key_test when one is "
                 "available. Do not invent scientific conclusions, alter confidence, "
                 "suppress minority findings, or hide unresolved questions. Represent "
-                "every supplied finding. Return only the requested JSON."
+                "every supplied finding. Examiner status is generated "
+                "deterministically by MOSAIC, so do not reproduce internal IDs. "
+                "Return only the requested JSON."
             ),
             payload={
-                "investigation": _snapshot_payload(snapshot),
+                "investigation": _observation_context(snapshot),
                 "examined_findings": [
-                    _finding_payload(finding) for finding in findings
+                    _report_finding_payload(finding)
+                    for finding in findings
                 ],
                 "cross_domain_synthesis": _json_ready(
                     synthesis_context or {}
@@ -573,9 +629,7 @@ class ModelCoordinator:
                 if data.get("key_test") is None
                 else str(data["key_test"])
             ),
-            examiner_status=tuple(
-                str(item) for item in data.get("examiner_status", [])
-            ),
+            examiner_status=_examiner_status(findings),
             unresolved_questions=tuple(
                 str(item)
                 for item in data.get("unresolved_questions", [])
@@ -627,12 +681,15 @@ class ModelThinker:
             schema=_proposal_schema(),
             system=self._system,
             payload={
-                "investigation": _snapshot_payload(snapshot),
+                "investigation": _observation_context(
+                    snapshot,
+                    task.observation_ids,
+                    include_prior_hypotheses=True,
+                ),
                 "task": {
                     "task_id": task.task_id,
                     "question": task.question,
                     "scope": task.scope,
-                    "observation_ids": list(task.observation_ids),
                     "constraints": list(task.constraints),
                 },
             },
@@ -672,7 +729,11 @@ class ModelThinker:
                 "otherwise return null for revised_proposal."
             ),
             payload={
-                "investigation": _snapshot_payload(snapshot),
+                "investigation": _observation_context(
+                    snapshot,
+                    task.observation_ids,
+                    include_prior_hypotheses=True,
+                ),
                 "task": {
                     "task_id": task.task_id,
                     "question": task.question,
@@ -810,14 +871,18 @@ class ModelExaminer:
                 "Return only the requested JSON."
             ),
             payload={
-                "investigation": _snapshot_payload(snapshot),
+                "investigation": _observation_context(
+                    snapshot,
+                    task.observation_ids,
+                    include_prior_hypotheses=True,
+                ),
                 "task": {
                     "task_id": task.task_id,
                     "question": task.question,
                     "scope": task.scope,
                 },
                 "proposal": _proposal_payload(proposal),
-                "transcript": _transcript_payload(transcript),
+                "transcript": _compact_transcript(transcript),
             },
         )
 
@@ -999,9 +1064,10 @@ class ModelCrossDomainReviewer:
                 "promotion when warranted. Return only the requested JSON."
             ),
             payload={
-                "investigation": _snapshot_payload(snapshot),
+                "investigation": _observation_context(snapshot),
                 "examined_findings": [
-                    _finding_payload(finding) for finding in findings
+                    _synthesis_finding_payload(finding)
+                    for finding in findings
                 ],
             },
         )

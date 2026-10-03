@@ -27,6 +27,10 @@ class ScriptedBackend:
         name = request.response_schema_name
 
         if name == "mosaic_coordinator_intake":
+            existing_ids = [
+                item["observation_id"]
+                for item in payload["investigation"]["observations"]
+            ]
             data = {
                 "question": "What causes the lean transient?",
                 "normalized_input": "Lean transient near 1.2 ms PW.",
@@ -43,7 +47,7 @@ class ScriptedBackend:
                         "assigned_to": "mechanical-01:v1",
                         "question": "Analyze fuel-system mechanisms.",
                         "scope": "Mechanical and fuel-delivery mechanisms.",
-                        "observation_ids": [],
+                        "observation_ids": existing_ids[:1],
                         "constraints": [],
                     }
                 ],
@@ -51,6 +55,7 @@ class ScriptedBackend:
             }
 
         elif name == "mosaic_thinker_proposal":
+            assert len(payload["investigation"]["observations"]) == 2
             data = {
                 "summary": "Wall-film depletion is plausible.",
                 "hypotheses": [
@@ -76,6 +81,9 @@ class ScriptedBackend:
             }
 
         elif name == "mosaic_examiner_review":
+            assert "predictions" not in payload["investigation"]
+            assert "relations" not in payload["investigation"]
+            assert "observations" in payload["investigation"]
             self.examiner_calls += 1
             if self.examiner_calls == 1:
                 data = {
@@ -122,7 +130,10 @@ class ScriptedBackend:
             }
 
         elif name == "mosaic_cross_domain_synthesis":
+            assert "predictions" not in payload["investigation"]
+            assert "relations" not in payload["investigation"]
             finding = payload["examined_findings"][0]
+            assert "proposal" not in finding
             examination_id = finding["examination_id"]
             data = {
                 "finding_ids": [examination_id],
@@ -150,6 +161,9 @@ class ScriptedBackend:
         elif name == "mosaic_coordinator_report":
             examination_id = payload["examined_findings"][0]["examination_id"]
             assert payload["cross_domain_synthesis"]["summary"]
+            assert "hypotheses" not in payload["investigation"]
+            assert "predictions" not in payload["investigation"]
+            assert "proposal" not in payload["examined_findings"][0]
             data = {
                 "answer": (
                     "The examined wall-film mechanism remains viable but "
@@ -167,9 +181,6 @@ class ScriptedBackend:
                     "Injector low-PW nonlinearity.",
                 ],
                 "key_test": "Repeat the transient with AE disabled.",
-                "examiner_status": [
-                    "Mechanical finding accepted with reservations."
-                ],
                 "unresolved_questions": [
                     "Does the deficit persist with AE disabled?"
                 ],
@@ -275,6 +286,10 @@ def test_model_backed_research_cycle_runs_end_to_end(tmp_path):
         assert result.report.finding_ids == (
             result.findings[0].examination_id,
         )
+        assert result.report.examiner_status == (
+            "Mechanical - ACCEPTED WITH RESERVATIONS, 1 challenge",
+        )
+        assert "EX-" not in result.report.examiner_status[0]
         assert progress_events
         stages = [event.stage for event in progress_events]
         assert stages[0] == "coordinator"

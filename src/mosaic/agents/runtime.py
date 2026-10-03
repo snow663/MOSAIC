@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Mapping
 
 from mosaic.investigation import Investigation
@@ -157,14 +157,35 @@ class ResearchCycle:
             )
         )
 
+        new_observation_ids: list[str] = []
         for draft in plan.observations:
-            investigation.record_observation(
+            observation = investigation.record_observation(
                 name=draft.name,
                 value=draft.value,
                 unit=draft.unit,
                 uncertainty=draft.uncertainty,
                 source=f"user_input:{plan.plan_id}",
                 actor=self.coordinator.identity,
+            )
+            new_observation_ids.append(observation.observation_id)
+
+        if new_observation_ids:
+            plan = replace(
+                plan,
+                tasks=tuple(
+                    replace(
+                        task,
+                        observation_ids=tuple(
+                            dict.fromkeys(
+                                (
+                                    *task.observation_ids,
+                                    *new_observation_ids,
+                                )
+                            )
+                        ),
+                    )
+                    for task in plan.tasks
+                ),
             )
 
         # Direct audit writes do not mutate the in-memory Investigation state.
