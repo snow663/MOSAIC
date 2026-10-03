@@ -308,13 +308,8 @@ def test_model_backed_research_cycle_runs_end_to_end(tmp_path):
             "mosaic_cross_domain_synthesis",
             "mosaic_coordinator_report",
         ]
-        assert [r.max_output_tokens for r in backend.requests] == [
-            1000,
-            1800,
-            1100,
-            1400,
-            1100,
-            1600,
-            1200,
-        ]
+        assert all(
+            request.max_output_tokens is None
+            for request in backend.requests
+        )
         assert store.verify_chain()
