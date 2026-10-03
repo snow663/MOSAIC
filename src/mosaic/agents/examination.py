@@ -12,6 +12,7 @@ from mosaic.kernel.store import SQLiteEventStore
 from mosaic.snapshot import InvestigationSnapshot
 
 from .independent import AgentProtocolError
+from .progress import ProgressCallback, emit_progress
 from .roles import (
     ExaminationChallenge,
     ExaminationExchange,
@@ -88,11 +89,13 @@ class PrivateExamination:
         *,
         audit_store: SQLiteEventStore | None = None,
         max_rounds: int = 6,
+        progress: ProgressCallback | None = None,
     ) -> None:
         if max_rounds < 1:
             raise ValueError("max_rounds must be at least 1")
         self.audit_store = audit_store
         self.max_rounds = max_rounds
+        self.progress = progress
 
     def _audit(
         self,
@@ -201,6 +204,13 @@ class PrivateExamination:
         self._validate_task(task, thinker)
         examination_id = f"EX-{uuid4()}"
 
+        emit_progress(
+            self.progress,
+            stage="thinker",
+            message=f"{thinker.identity.ref} is investigating.",
+            actor_ref=thinker.identity.ref,
+            task_id=task.task_id,
+        )
         proposal = await thinker.investigate(snapshot, task)
         self._validate_proposal(proposal, task, thinker)
         initial_proposal_id = proposal.proposal_id
@@ -221,6 +231,17 @@ class PrivateExamination:
         )
 
         for round_number in range(1, self.max_rounds + 1):
+            emit_progress(
+                self.progress,
+                stage="examiner",
+                message=(
+                    f"{examiner.identity.ref} is reviewing "
+                    f"{thinker.identity.ref} (round {round_number})."
+                ),
+                actor_ref=examiner.identity.ref,
+                task_id=task.task_id,
+                round=round_number,
+            )
             review = await examiner.examine(
                 snapshot,
                 task,
@@ -241,6 +262,18 @@ class PrivateExamination:
                     proposal=proposal,
                     transcript=tuple(transcript),
                     initial_proposal_id=initial_proposal_id,
+                )
+                emit_progress(
+                    self.progress,
+                    stage="examiner",
+                    message=(
+                        f"{thinker.identity.ref} examination completed: "
+                        f"{result.disposition.value}."
+                    ),
+                    actor_ref=examiner.identity.ref,
+                    task_id=task.task_id,
+                    disposition=result.disposition.value,
+                    rounds=len(result.transcript),
                 )
                 self._audit(
                     snapshot=snapshot,
@@ -287,6 +320,28 @@ class PrivateExamination:
                 examination_id=examination_id,
             )
 
+            emit_progress(
+                self.progress,
+                stage="challenge",
+                message=(
+                    f"{examiner.identity.ref} challenged "
+                    f"{thinker.identity.ref}: {review.question}"
+                ),
+                actor_ref=examiner.identity.ref,
+                task_id=task.task_id,
+                round=round_number,
+            )
+            emit_progress(
+                self.progress,
+                stage="thinker",
+                message=(
+                    f"{thinker.identity.ref} is answering examiner "
+                    f"round {round_number}."
+                ),
+                actor_ref=thinker.identity.ref,
+                task_id=task.task_id,
+                round=round_number,
+            )
             response = await thinker.answer_examination(
                 snapshot,
                 task,
