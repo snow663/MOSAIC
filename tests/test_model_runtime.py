@@ -18,9 +18,11 @@ class ScriptedBackend:
     backend_id = "scripted-hosted"
     location = BackendLocation.REMOTE
 
-    def __init__(self):
+    def __init__(self, *, with_review=False):
         self.requests = []
         self.examiner_calls = 0
+        self.intake_calls = 0
+        self.with_review = with_review
 
     async def generate(self, request):
         self.requests.append(request)
@@ -28,13 +30,45 @@ class ScriptedBackend:
         name = request.response_schema_name
 
         if name == "mosaic_coordinator_intake":
+            self.intake_calls += 1
             existing_ids = [
                 item["observation_id"]
                 for item in payload["investigation"]["observations"]
             ]
-            data = {
-                "question": "What causes the lean transient?",
-                "normalized_input": "Lean transient near 1.2 ms PW.",
+            if self.with_review and self.intake_calls == 2:
+                assert "MOSAIC CLARIFICATION CONTEXT" in payload["user_input"]
+                assert "USER CLARIFICATION RESPONSE" in payload["user_input"]
+                data = {
+                    "question": "What causes the lean transient?",
+                    "normalized_input": (
+                        "Lean transient near 1.2 ms PW; AE reported disabled."
+                    ),
+                    "observations": [
+                        {
+                            "name": "reported_ae_state",
+                            "value": "disabled",
+                            "unit": None,
+                            "uncertainty": None,
+                            "context_key": None,
+                            "context_label": None,
+                        }
+                    ],
+                    "tasks": [
+                        {
+                            "assigned_to": "mechanical-01:v1",
+                            "question": "Analyze fuel-system mechanisms.",
+                            "scope": "Mechanical and fuel-delivery mechanisms.",
+                            "observation_ids": existing_ids,
+                            "constraints": [],
+                        }
+                    ],
+                    "ambiguities": [],
+                    "clarification_questions": [],
+                }
+            else:
+                data = {
+                    "question": "What causes the lean transient?",
+                    "normalized_input": "Lean transient near 1.2 ms PW.",
                 "observations": [
                     {
                         "name": "reported_injector_pw",
@@ -62,11 +96,20 @@ class ScriptedBackend:
                         "constraints": [],
                     }
                 ],
-                "ambiguities": [],
-            }
+                    "ambiguities": [],
+                    "clarification_questions": (
+                        ["Is acceleration enrichment enabled?"]
+                        if self.with_review
+                        else []
+                    ),
+                }
 
         elif name == "mosaic_thinker_proposal":
-            assert len(payload["investigation"]["observations"]) == 3
+            expected_observations = 4 if self.with_review else 3
+            assert (
+                len(payload["investigation"]["observations"])
+                == expected_observations
+            )
             events = payload["investigation"]["reported_events"]
             assert len(events) == 1
             assert events[0]["label"] == "reported lean event near 1.2 ms"
@@ -101,6 +144,8 @@ class ScriptedBackend:
             assert "observations" in payload["investigation"]
             assert len(payload["investigation"]["reported_events"]) == 1
             self.examiner_calls += 1
+            if self.examiner_calls > 1:
+                assert payload["challenged_categories"] == ["confidence"]
             if self.examiner_calls == 1:
                 data = {
                     "action": "challenge",
@@ -109,6 +154,10 @@ class ScriptedBackend:
                         "Wall-film depletion causes the transient."
                     ),
                     "evidence_refs": [],
+                    "challenge_category": "confidence",
+                    "decision_impact": (
+                        "Resolving this could change confidence in the mechanism."
+                    ),
                     "disposition": None,
                     "findings_summary": None,
                     "reservations": [],
@@ -121,6 +170,8 @@ class ScriptedBackend:
                     "question": None,
                     "targeted_claim": None,
                     "evidence_refs": [],
+                    "challenge_category": None,
+                    "decision_impact": None,
                     "disposition": "accepted_with_reservations",
                     "findings_summary": (
                         "Mechanism is coherent but needs an AE-disabled test."
@@ -338,6 +389,103 @@ def test_model_backed_research_cycle_runs_end_to_end(tmp_path):
             request.max_output_tokens is None
             for request in backend.requests
         )
+        assert store.verify_chain()
+
+
+def test_interactive_review_accepts_second_input_before_thinkers(tmp_path):
+    backend = ScriptedBackend(with_review=True)
+    coordinator_identity = AgentIdentity("coordinator", "v1", "coordinator")
+    thinker_identity = AgentIdentity(
+        "mechanical-01",
+        "v1",
+        "thinker",
+        ("mechanical", "fuel-systems"),
+    )
+    examiner_identity = AgentIdentity("examiner-01", "v1", "examiner")
+    reviewer_identity = AgentIdentity(
+        "cross-domain-reviewer",
+        "v1",
+        "cross-domain-reviewer",
+    )
+
+    coordinator = ModelCoordinator(
+        identity=coordinator_identity,
+        backend=backend,
+        model="hosted-model",
+        thinker_catalog={
+            thinker_identity.ref: "Mechanical and fuel-system specialist."
+        },
+    )
+    thinker = ModelThinker(
+        identity=thinker_identity,
+        backend=backend,
+        model="hosted-model",
+        instructions="Focus on fuel delivery and manifold physics.",
+    )
+    examiner = ModelExaminer(
+        identity=examiner_identity,
+        backend=backend,
+        model="hosted-model",
+    )
+    reviewer = ModelCrossDomainReviewer(
+        identity=reviewer_identity,
+        backend=backend,
+        model="hosted-model",
+    )
+
+    seen_requests = []
+
+    async def provide_review(request):
+        seen_requests.append(request)
+        return "Acceleration enrichment is disabled."
+
+    progress_events = []
+    cycle = ResearchCycle(
+        coordinator=coordinator,
+        thinkers={thinker.identity.ref: thinker},
+        examiner=examiner,
+        reviewer=reviewer,
+        progress=progress_events.append,
+        review_input_provider=provide_review,
+    )
+
+    with SQLiteEventStore(tmp_path / "review.db") as store:
+        investigation = Investigation(store, "review-cycle")
+        investigation.record_observation(
+            name="injector_pw",
+            value=1.2,
+            unit="ms",
+            source="user",
+        )
+
+        result = asyncio.run(
+            cycle.run(
+                investigation=investigation,
+                user_input="It goes lean near 1.2 ms.",
+            )
+        )
+
+        assert len(seen_requests) == 1
+        assert seen_requests[0].questions == (
+            "Is acceleration enrichment enabled?",
+        )
+        assert result.review_request == seen_requests[0]
+        assert result.review_response == "Acceleration enrichment is disabled."
+        assert backend.intake_calls == 2
+        assert any(
+            item.name == "reported_ae_state" and item.value == "disabled"
+            for item in investigation.observations.values()
+        )
+        stages = [event.stage for event in progress_events]
+        assert stages.count("review") == 2
+        assert stages.index("review") < stages.index("thinker")
+
+        audit_types = [
+            item.event.event_type
+            for item in store.events_for_stream("review-cycle")
+        ]
+        assert "review.requested" in audit_types
+        assert "review.response_received" in audit_types
         assert store.verify_chain()
 
 
