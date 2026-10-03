@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from typing import Mapping
+from uuid import uuid4
 
 from mosaic.investigation import Investigation
 from mosaic.kernel.events import Event
@@ -127,16 +128,29 @@ class ResearchCycle:
             available_thinkers=tuple(self.thinkers.values()),
         )
 
+        reported_context_count = len(
+            {
+                draft.context_key
+                for draft in plan.observations
+                if draft.context_key is not None
+            }
+        )
         emit_progress(
             self.progress,
             stage="coordinator",
             message=(
                 f"Coordinator selected {len(plan.tasks)} specialist task(s) "
-                f"and extracted {len(plan.observations)} observation(s)."
+                f"and extracted {len(plan.observations)} observation(s)"
+                + (
+                    f" across {reported_context_count} reported event group(s)."
+                    if reported_context_count
+                    else "."
+                )
             ),
             actor_ref=self.coordinator.identity.ref,
             tasks=len(plan.tasks),
             observations=len(plan.observations),
+            reported_event_groups=reported_context_count,
         )
 
         investigation.store.append(
@@ -153,17 +167,27 @@ class ResearchCycle:
                     "ambiguities": list(plan.ambiguities),
                     "task_ids": [task.task_id for task in plan.tasks],
                     "observation_count": len(plan.observations),
+                    "reported_event_group_count": reported_context_count,
                 },
             )
         )
 
         new_observation_ids: list[str] = []
+        context_ids: dict[str, str] = {}
         for draft in plan.observations:
+            context_id = None
+            if draft.context_key is not None:
+                context_id = context_ids.setdefault(
+                    draft.context_key,
+                    f"CTX-{uuid4()}",
+                )
             observation = investigation.record_observation(
                 name=draft.name,
                 value=draft.value,
                 unit=draft.unit,
                 uncertainty=draft.uncertainty,
+                context_id=context_id,
+                context_label=draft.context_label,
                 source=f"user_input:{plan.plan_id}",
                 actor=self.coordinator.identity,
             )
