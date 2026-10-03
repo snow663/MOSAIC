@@ -1,5 +1,7 @@
 import json
 
+import pytest
+
 from mosaic.agents import BackendLocation, ModelRequest
 from mosaic.backends import BackendProtocolError, OpenAICompatibleBackend
 
@@ -127,12 +129,6 @@ def test_backend_can_use_legacy_max_tokens_field():
 
 
 def test_backend_reports_completion_budget_exhaustion():
-    backend = OpenAICompatibleBackend(
-        backend_id="hosted",
-        base_url="https://example.invalid/v1",
-        api_key="secret",
-    )
-
     data = {
         "choices": [
             {
@@ -146,10 +142,5 @@ def test_backend_reports_completion_budget_exhaustion():
         "model": "model-x",
     }
 
-    try:
-        finish_reason = data["choices"][0].get("finish_reason")
-    except (KeyError, IndexError, TypeError, AttributeError):
-        finish_reason = None
-
-    assert finish_reason == "length"
-
+    with pytest.raises(BackendProtocolError, match="output token limit"):
+        OpenAICompatibleBackend._assert_completion_within_budget(data)
