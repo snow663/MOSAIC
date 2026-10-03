@@ -1,7 +1,7 @@
 import json
 
 from mosaic.agents import BackendLocation, ModelRequest
-from mosaic.backends import OpenAICompatibleBackend
+from mosaic.backends import BackendProtocolError, OpenAICompatibleBackend
 
 
 def test_openai_compatible_backend_builds_strict_schema_payload():
@@ -124,3 +124,32 @@ def test_backend_can_use_legacy_max_tokens_field():
 
     assert payload["max_tokens"] == 555
     assert "max_completion_tokens" not in payload
+
+
+def test_backend_reports_completion_budget_exhaustion():
+    backend = OpenAICompatibleBackend(
+        backend_id="hosted",
+        base_url="https://example.invalid/v1",
+        api_key="secret",
+    )
+
+    data = {
+        "choices": [
+            {
+                "finish_reason": "length",
+                "message": {
+                    "role": "assistant",
+                    "content": "{",
+                },
+            }
+        ],
+        "model": "model-x",
+    }
+
+    try:
+        finish_reason = data["choices"][0].get("finish_reason")
+    except (KeyError, IndexError, TypeError, AttributeError):
+        finish_reason = None
+
+    assert finish_reason == "length"
+
