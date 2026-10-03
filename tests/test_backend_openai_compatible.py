@@ -72,3 +72,16 @@ def test_backend_extracts_chat_completion_text():
     }
 
     assert OpenAICompatibleBackend._extract_text(data) == '{"answer": "ok"}'
+
+
+def test_backend_extracts_usage_metadata():
+    data = {
+        "usage": {
+            "prompt_tokens": 123,
+            "completion_tokens": 45,
+            "prompt_tokens_details": {"cached_tokens": 67},
+            "completion_tokens_details": {"reasoning_tokens": 8},
+        }
+    }
+
+    assert OpenAICompatibleBackend._extract_usage(data) == (123, 45, 67, 8)

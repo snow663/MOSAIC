@@ -150,6 +150,7 @@ class ModelRequest:
     input_text: str
     response_schema_name: str | None = None
     response_schema: Mapping[str, Any] | None = None
+    usage_tag: str | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "model", _require_text(self.model, "model"))
@@ -174,15 +175,25 @@ class ModelRequest:
                 "response_schema",
                 MappingProxyType(dict(self.response_schema)),
             )
+        if self.usage_tag is not None:
+            object.__setattr__(
+                self,
+                "usage_tag",
+                _require_text(self.usage_tag, "usage_tag"),
+            )
 
 
 @dataclass(frozen=True, slots=True)
 class ModelResponse:
-    """Provider-neutral raw model response plus provenance."""
+    """Provider-neutral raw model response plus provenance and token usage."""
 
     backend_id: str
     model: str
     output_text: str
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+    cached_input_tokens: int | None = None
+    reasoning_tokens: int | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -191,6 +202,19 @@ class ModelResponse:
             _require_text(self.backend_id, "backend_id"),
         )
         object.__setattr__(self, "model", _require_text(self.model, "model"))
+        for field_name in (
+            "input_tokens",
+            "output_tokens",
+            "cached_input_tokens",
+            "reasoning_tokens",
+        ):
+            value = getattr(self, field_name)
+            if value is None:
+                continue
+            value = int(value)
+            if value < 0:
+                raise ValueError(f"{field_name} must be non-negative")
+            object.__setattr__(self, field_name, value)
 
 
 @runtime_checkable

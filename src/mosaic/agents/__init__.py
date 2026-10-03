@@ -21,6 +21,7 @@ from .model_roles import (
     ModelThinker,
     StructuredOutputError,
 )
+from .progress import ProgressCallback, ProgressEvent
 from .roles import (
     Coordinator,
     CoordinatorReport,
@@ -50,6 +51,14 @@ from .synthesis import (
     SynthesisProtocolError,
     SynthesisSession,
 )
+from .telemetry import (
+    ModelPricing,
+    TrackedBackend,
+    UsageRecord,
+    UsageTotal,
+    UsageTracker,
+    openai_standard_pricing,
+)
 
 __all__ = [
     "AgentDefinition",
@@ -75,16 +84,19 @@ __all__ = [
     "IndependentPass",
     "InvestigationPlan",
     "MinorityReport",
-    "ObservationDraft",
     "ModelBackend",
     "ModelCoordinator",
     "ModelCrossDomainReviewer",
     "ModelExaminer",
+    "ModelPricing",
     "ModelRequest",
     "ModelResponse",
     "ModelThinker",
+    "ObservationDraft",
     "PredictionProposal",
     "PrivateExamination",
+    "ProgressCallback",
+    "ProgressEvent",
     "PromotionCandidate",
     "PromotionExecutor",
     "PromotionRecord",
@@ -98,4 +110,9 @@ __all__ = [
     "ThinkerProposal",
     "ThinkerResponse",
     "ThinkerTask",
+    "TrackedBackend",
+    "UsageRecord",
+    "UsageTotal",
+    "UsageTracker",
+    "openai_standard_pricing",
 ]

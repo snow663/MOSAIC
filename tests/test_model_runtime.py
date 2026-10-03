@@ -156,6 +156,23 @@ class ScriptedBackend:
                     "requires an AE-disabled test."
                 ),
                 "finding_ids": [examination_id],
+                "observations": [
+                    "Injector pulse width was reported near 1.2 ms."
+                ],
+                "established": [
+                    "The available evidence does not yet distinguish the cause."
+                ],
+                "surviving_hypotheses": [
+                    "Wall-film depletion.",
+                    "Injector low-PW nonlinearity.",
+                ],
+                "key_test": "Repeat the transient with AE disabled.",
+                "examiner_status": [
+                    "Mechanical finding accepted with reservations."
+                ],
+                "unresolved_questions": [
+                    "Does the deficit persist with AE disabled?"
+                ],
                 "caveats": [
                     "Injector nonlinearity remains an alternative."
                 ],
@@ -219,11 +236,13 @@ def test_model_backed_research_cycle_runs_end_to_end(tmp_path):
         backend=backend,
         model="hosted-model",
     )
+    progress_events = []
     cycle = ResearchCycle(
         coordinator=coordinator,
         thinkers={thinker.identity.ref: thinker},
         examiner=examiner,
         reviewer=reviewer,
+        progress=progress_events.append,
     )
 
     with SQLiteEventStore(tmp_path / "research.db") as store:
@@ -248,9 +267,23 @@ def test_model_backed_research_cycle_runs_end_to_end(tmp_path):
         assert len(investigation.hypotheses) == 1
         assert len(investigation.predictions) == 1
         assert "AE-disabled" in result.report.answer
+        assert result.report.key_test == "Repeat the transient with AE disabled."
+        assert result.report.surviving_hypotheses == (
+            "Wall-film depletion.",
+            "Injector low-PW nonlinearity.",
+        )
         assert result.report.finding_ids == (
             result.findings[0].examination_id,
         )
+        assert progress_events
+        stages = [event.stage for event in progress_events]
+        assert stages[0] == "coordinator"
+        assert "thinker" in stages
+        assert "examiner" in stages
+        assert "challenge" in stages
+        assert "synthesis" in stages
+        assert stages[-1] == "complete"
+
         assert [r.response_schema_name for r in backend.requests] == [
             "mosaic_coordinator_intake",
             "mosaic_thinker_proposal",

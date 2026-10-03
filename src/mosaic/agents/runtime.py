@@ -10,6 +10,7 @@ from mosaic.kernel.events import Event
 
 from .coordination import CoordinatorSession
 from .examination import PrivateExamination
+from .progress import ProgressCallback, emit_progress
 from .roles import (
     Coordinator,
     CoordinatorReport,
@@ -49,6 +50,7 @@ class ResearchCycle:
         examiner: Examiner,
         reviewer: CrossDomainReviewer,
         max_examination_rounds: int = 6,
+        progress: ProgressCallback | None = None,
     ) -> None:
         if not thinkers:
             raise ValueError("at least one Thinker is required")
@@ -57,6 +59,7 @@ class ResearchCycle:
         self.examiner = examiner
         self.reviewer = reviewer
         self.max_examination_rounds = max_examination_rounds
+        self.progress = progress
 
         for ref, thinker in self.thinkers.items():
             if ref != thinker.identity.ref:
@@ -111,11 +114,29 @@ class ResearchCycle:
         """Run one complete MOSAIC reasoning cycle."""
 
         intake_snapshot = investigation.snapshot()
+        emit_progress(
+            self.progress,
+            stage="coordinator",
+            message="Coordinator is processing intake.",
+            actor_ref=self.coordinator.identity.ref,
+        )
         plan = await CoordinatorSession.intake(
             coordinator=self.coordinator,
             user_input=user_input,
             snapshot=intake_snapshot,
             available_thinkers=tuple(self.thinkers.values()),
+        )
+
+        emit_progress(
+            self.progress,
+            stage="coordinator",
+            message=(
+                f"Coordinator selected {len(plan.tasks)} specialist task(s) "
+                f"and extracted {len(plan.observations)} observation(s)."
+            ),
+            actor_ref=self.coordinator.identity.ref,
+            tasks=len(plan.tasks),
+            observations=len(plan.observations),
         )
 
         investigation.store.append(
@@ -151,10 +172,20 @@ class ResearchCycle:
         # all observations extracted from the current user input.
         investigation.replay()
         source_snapshot = investigation.snapshot()
+        emit_progress(
+            self.progress,
+            stage="snapshot",
+            message=(
+                f"Frozen investigation snapshot at ledger sequence "
+                f"{source_snapshot.ledger_sequence}."
+            ),
+            ledger_sequence=source_snapshot.ledger_sequence,
+        )
 
         examination = PrivateExamination(
             audit_store=investigation.store,
             max_rounds=self.max_examination_rounds,
+            progress=self.progress,
         )
         findings: list[ExaminationResult] = []
 
@@ -171,12 +202,31 @@ class ResearchCycle:
             findings.append(finding)
 
         findings_tuple = tuple(findings)
+        emit_progress(
+            self.progress,
+            stage="synthesis",
+            message=(
+                f"Cross-domain review is comparing "
+                f"{len(findings_tuple)} examined finding(s)."
+            ),
+            actor_ref=self.reviewer.identity.ref,
+            findings=len(findings_tuple),
+        )
         synthesis = await SynthesisSession(
             audit_store=investigation.store
         ).run(
             source_snapshot,
             findings_tuple,
             self.reviewer,
+        )
+
+        emit_progress(
+            self.progress,
+            stage="synthesis",
+            message="Cross-domain synthesis completed.",
+            actor_ref=self.reviewer.identity.ref,
+            promotions=len(synthesis.promotions),
+            unresolved=len(synthesis.unresolved_questions),
         )
 
         promotions = PromotionExecutor.apply(
@@ -190,7 +240,23 @@ class ResearchCycle:
             promoter=self.reviewer.identity,
         )
 
+        emit_progress(
+            self.progress,
+            stage="promotion",
+            message=(
+                f"Promoted {len(promotions)} hypothesis candidate(s) "
+                f"into the institutional graph."
+            ),
+            promotions=len(promotions),
+        )
+
         final_snapshot = investigation.snapshot()
+        emit_progress(
+            self.progress,
+            stage="coordinator",
+            message="Coordinator is preparing the final report.",
+            actor_ref=self.coordinator.identity.ref,
+        )
         report = await CoordinatorSession.report(
             coordinator=self.coordinator,
             snapshot=final_snapshot,
@@ -199,6 +265,13 @@ class ResearchCycle:
                 synthesis,
                 promotions,
             ),
+        )
+
+        emit_progress(
+            self.progress,
+            stage="complete",
+            message="MOSAIC investigation cycle completed.",
+            actor_ref=self.coordinator.identity.ref,
         )
 
         return ResearchCycleResult(
