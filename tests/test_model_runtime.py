@@ -2,6 +2,7 @@ import asyncio
 import json
 
 from mosaic import AgentIdentity, Investigation, SQLiteEventStore
+from mosaic.agents.model_roles import _observation_context
 from mosaic.agents import (
     BackendLocation,
     ModelCoordinator,
@@ -40,7 +41,17 @@ class ScriptedBackend:
                         "value": 1.2,
                         "unit": "ms",
                         "uncertainty": None,
-                    }
+                        "context_key": "lean_event",
+                        "context_label": "reported lean event near 1.2 ms",
+                    },
+                    {
+                        "name": "reported_mixture_condition",
+                        "value": "lean briefly",
+                        "unit": None,
+                        "uncertainty": None,
+                        "context_key": "lean_event",
+                        "context_label": "reported lean event near 1.2 ms",
+                    },
                 ],
                 "tasks": [
                     {
@@ -55,7 +66,11 @@ class ScriptedBackend:
             }
 
         elif name == "mosaic_thinker_proposal":
-            assert len(payload["investigation"]["observations"]) == 2
+            assert len(payload["investigation"]["observations"]) == 3
+            events = payload["investigation"]["reported_events"]
+            assert len(events) == 1
+            assert events[0]["label"] == "reported lean event near 1.2 ms"
+            assert len(events[0]["observation_ids"]) == 2
             data = {
                 "summary": "Wall-film depletion is plausible.",
                 "hypotheses": [
@@ -84,6 +99,7 @@ class ScriptedBackend:
             assert "predictions" not in payload["investigation"]
             assert "relations" not in payload["investigation"]
             assert "observations" in payload["investigation"]
+            assert len(payload["investigation"]["reported_events"]) == 1
             self.examiner_calls += 1
             if self.examiner_calls == 1:
                 data = {
@@ -274,7 +290,17 @@ def test_model_backed_research_cycle_runs_end_to_end(tmp_path):
 
         assert len(result.findings) == 1
         assert len(result.promotions) == 1
-        assert len(investigation.observations) == 2
+        assert len(investigation.observations) == 3
+        contextual = [
+            item
+            for item in investigation.observations.values()
+            if item.context_id is not None
+        ]
+        assert len(contextual) == 2
+        assert len({item.context_id for item in contextual}) == 1
+        assert {
+            item.context_label for item in contextual
+        } == {"reported lean event near 1.2 ms"}
         assert len(investigation.hypotheses) == 1
         assert len(investigation.predictions) == 1
         assert "AE-disabled" in result.report.answer
@@ -313,3 +339,52 @@ def test_model_backed_research_cycle_runs_end_to_end(tmp_path):
             for request in backend.requests
         )
         assert store.verify_chain()
+
+
+def test_task_context_expands_to_complete_reported_event(tmp_path):
+    with SQLiteEventStore(tmp_path / "event-context.db") as store:
+        investigation = Investigation(store, "event-context")
+        rpm = investigation.record_observation(
+            name="rpm",
+            value=3200,
+            unit="rpm",
+            source="user",
+            context_id="CTX-3200",
+            context_label="reported event near 3200 RPM",
+        )
+        current = investigation.record_observation(
+            name="motor_current",
+            value=19,
+            unit="A",
+            source="user",
+            context_id="CTX-3200",
+            context_label="reported event near 3200 RPM",
+        )
+        unrelated = investigation.record_observation(
+            name="ambient_temperature",
+            value=22,
+            unit="C",
+            source="user",
+        )
+
+        payload = _observation_context(
+            investigation.snapshot(),
+            (rpm.observation_id,),
+        )
+
+        ids = {
+            item["observation_id"]
+            for item in payload["observations"]
+        }
+        assert ids == {rpm.observation_id, current.observation_id}
+        assert unrelated.observation_id not in ids
+        assert payload["reported_events"] == [
+            {
+                "context_id": "CTX-3200",
+                "label": "reported event near 3200 RPM",
+                "observation_ids": [
+                    rpm.observation_id,
+                    current.observation_id,
+                ],
+            }
+        ]

@@ -70,6 +70,8 @@ Its responsibilities are:
 
 - interpret user input
 - separate observations from user interpretations
+- preserve direct relational context between observations, including when
+  multiple reported facts belong to the same event or operating point
 - normalize terminology and units where possible
 - identify the investigation question
 - identify missing or ambiguous information
@@ -94,6 +96,22 @@ It must not:
 
 The Coordinator may summarize, organize, and explain findings, but its final
 answer must remain traceable to the institutional record.
+
+
+### Reported observation context
+
+Atomic measurements are not sufficient when the user's report also states a
+relationship between them. MOSAIC preserves explicit co-occurrence as
+observation context rather than forcing downstream roles to reconstruct it.
+
+For example, if the user reports that near 3200 RPM vibration becomes severe,
+current rises from 8 A to 19 A, and controller supply voltage remains stable,
+those observations may share one reported-event context. The context records
+that the user reported them as belonging to the same operating event. It does
+not assert that one caused another.
+
+When a task references one observation from a reported event, the full event
+group is supplied with it so filtering cannot silently destroy the relationship.
 
 ### Thinker
 

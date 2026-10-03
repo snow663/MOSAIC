@@ -159,6 +159,8 @@ def _observation_payload(item: Any) -> dict[str, Any]:
         "unit": item.unit,
         "source": item.source,
         "uncertainty": item.uncertainty,
+        "context_id": item.context_id,
+        "context_label": item.context_label,
     }
 
 
@@ -169,11 +171,45 @@ def _observation_context(
     include_prior_hypotheses: bool = False,
 ) -> dict[str, Any]:
     wanted = set(observation_ids)
-    selected = [
-        item
-        for item in snapshot.observations
-        if not wanted or item.observation_id in wanted
-    ]
+    if wanted:
+        initially_selected = [
+            item
+            for item in snapshot.observations
+            if item.observation_id in wanted
+        ]
+        selected_context_ids = {
+            item.context_id
+            for item in initially_selected
+            if item.context_id is not None
+        }
+        selected = [
+            item
+            for item in snapshot.observations
+            if (
+                item.observation_id in wanted
+                or (
+                    item.context_id is not None
+                    and item.context_id in selected_context_ids
+                )
+            )
+        ]
+    else:
+        selected = list(snapshot.observations)
+
+    reported_events: dict[str, dict[str, Any]] = {}
+    for item in selected:
+        if item.context_id is None:
+            continue
+        group = reported_events.setdefault(
+            item.context_id,
+            {
+                "context_id": item.context_id,
+                "label": item.context_label,
+                "observation_ids": [],
+            },
+        )
+        group["observation_ids"].append(item.observation_id)
+
     payload: dict[str, Any] = {
         "investigation_id": snapshot.investigation_id,
         "ledger_sequence": snapshot.ledger_sequence,
@@ -181,6 +217,7 @@ def _observation_context(
             _observation_payload(item)
             for item in selected
         ],
+        "reported_events": list(reported_events.values()),
     }
     if include_prior_hypotheses:
         payload["existing_hypotheses"] = [
@@ -433,8 +470,21 @@ class ModelCoordinator:
                 "uncertainty": {
                     "anyOf": [{"type": "number"}, {"type": "null"}]
                 },
+                "context_key": {
+                    "anyOf": [{"type": "string"}, {"type": "null"}]
+                },
+                "context_label": {
+                    "anyOf": [{"type": "string"}, {"type": "null"}]
+                },
             },
-            ["name", "value", "unit", "uncertainty"],
+            [
+                "name",
+                "value",
+                "unit",
+                "uncertainty",
+                "context_key",
+                "context_label",
+            ],
         )
         schema = _object_schema(
             {
@@ -473,7 +523,13 @@ class ModelCoordinator:
                 "Do not originate hypotheses, suggest likely answers, or contaminate "
                 "one specialist with another specialist's view. Keep the normalized "
                 "input and question brief, route only specialists that materially add "
-                "value, and keep ambiguities concise. Return only the requested JSON."
+                "value, and keep ambiguities concise. Preserve direct relational "
+                "context: when the user explicitly reports multiple observations as "
+                "occurring in the same event, operating point, or time window, assign "
+                "them the same short context_key and a neutral context_label. Use null "
+                "for both context fields when no such relationship is stated. Grouping "
+                "establishes reported co-occurrence only, never causality. Return only "
+                "the requested JSON."
             ),
             payload={
                 "user_input": user_input,
@@ -504,6 +560,16 @@ class ModelCoordinator:
                         None
                         if item.get("uncertainty") is None
                         else float(item["uncertainty"])
+                    ),
+                    context_key=(
+                        None
+                        if item.get("context_key") is None
+                        else str(item["context_key"])
+                    ),
+                    context_label=(
+                        None
+                        if item.get("context_label") is None
+                        else str(item["context_label"])
                     ),
                 )
                 for item in data.get("observations", [])
@@ -670,7 +736,9 @@ class ModelThinker:
             "more than 2 sentences per hypothesis. Prefer discriminating predictions "
             "over exhaustive possibilities. Do not claim that "
             "another specialist agrees with you unless that information is in "
-            "the supplied context. Do not fabricate observations. "
+            "the supplied context. Treat reported_events as direct user-reported "
+            "co-occurrence/context, not as proof of causality. Do not fabricate "
+            "observations. "
             f"Specialist instructions: {self.instructions} "
             "Return only the requested JSON."
         )
@@ -878,7 +946,10 @@ class ModelExaminer:
                 "sentences, reservations to at most 3 concise items, unresolved "
                 "questions to at most 3 concise items, and include statistics only "
                 "when they add information. Do not restate evidence already present. "
-                "Do not force agreement when evidence is insufficient; use unresolved. "
+                "Treat reported_events as preserved direct context: do not challenge "
+                "a timing or co-occurrence link merely because its atomic observations "
+                "are stored separately, but do challenge causal inferences beyond that "
+                "link. Do not force agreement when evidence is insufficient; use unresolved. "
                 f"Examiner instructions: {self.instructions} "
                 "Return only the requested JSON."
             ),
