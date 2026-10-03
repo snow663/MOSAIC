@@ -130,6 +130,17 @@ class OpenAICompatibleBackend:
         return payload
 
     @staticmethod
+    def _assert_completion_within_budget(data: dict[str, Any]) -> None:
+        try:
+            finish_reason = data["choices"][0].get("finish_reason")
+        except (KeyError, IndexError, TypeError, AttributeError):
+            finish_reason = None
+        if finish_reason == "length":
+            raise BackendProtocolError(
+                "backend completion reached the configured output token limit"
+            )
+
+    @staticmethod
     def _extract_text(data: dict[str, Any]) -> str:
         try:
             message = data["choices"][0]["message"]
@@ -244,15 +255,7 @@ class OpenAICompatibleBackend:
         if not isinstance(data, dict):
             raise BackendProtocolError("backend response root must be an object")
 
-        try:
-            finish_reason = data["choices"][0].get("finish_reason")
-        except (KeyError, IndexError, TypeError, AttributeError):
-            finish_reason = None
-        if finish_reason == "length":
-            raise BackendProtocolError(
-                "backend completion reached the configured output token limit"
-            )
-
+        self._assert_completion_within_budget(data)
         output_text = self._extract_text(data)
         response_model = data.get("model")
         if not isinstance(response_model, str) or not response_model.strip():
