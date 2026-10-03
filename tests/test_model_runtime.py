@@ -27,6 +27,10 @@ class ScriptedBackend:
         name = request.response_schema_name
 
         if name == "mosaic_coordinator_intake":
+            existing_ids = [
+                item["observation_id"]
+                for item in payload["investigation"]["observations"]
+            ]
             data = {
                 "question": "What causes the lean transient?",
                 "normalized_input": "Lean transient near 1.2 ms PW.",
@@ -43,7 +47,7 @@ class ScriptedBackend:
                         "assigned_to": "mechanical-01:v1",
                         "question": "Analyze fuel-system mechanisms.",
                         "scope": "Mechanical and fuel-delivery mechanisms.",
-                        "observation_ids": [],
+                        "observation_ids": existing_ids[:1],
                         "constraints": [],
                     }
                 ],
@@ -51,6 +55,7 @@ class ScriptedBackend:
             }
 
         elif name == "mosaic_thinker_proposal":
+            assert len(payload["investigation"]["observations"]) == 2
             data = {
                 "summary": "Wall-film depletion is plausible.",
                 "hypotheses": [
