@@ -505,7 +505,6 @@ class ModelCoordinator:
                 "clarification_questions": {
                     "type": "array",
                     "items": {"type": "string"},
-                    "maxItems": 3,
                 },
             },
             [
