@@ -98,6 +98,8 @@ class OpenAICompatibleBackend:
                 {"role": "user", "content": model_request.input_text},
             ],
         }
+        if model_request.max_output_tokens is not None:
+            payload["max_completion_tokens"] = model_request.max_output_tokens
 
         if model_request.response_schema is not None:
             schema = _plain_json(model_request.response_schema)
