@@ -84,6 +84,8 @@ class ObservationDraft:
     value: Any
     unit: str | None = None
     uncertainty: float | None = None
+    context_key: str | None = None
+    context_label: str | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "name", _text(self.name, "name"))
@@ -94,6 +96,22 @@ class ObservationDraft:
             if uncertainty < 0:
                 raise ValueError("uncertainty must be non-negative")
             object.__setattr__(self, "uncertainty", uncertainty)
+        if self.context_key is not None:
+            object.__setattr__(
+                self,
+                "context_key",
+                _text(self.context_key, "context_key"),
+            )
+        if self.context_label is not None:
+            object.__setattr__(
+                self,
+                "context_label",
+                _text(self.context_label, "context_label"),
+            )
+        if (self.context_key is None) != (self.context_label is None):
+            raise ValueError(
+                "context_key and context_label must be supplied together"
+            )
 
 
 @dataclass(frozen=True, slots=True)
@@ -122,6 +140,18 @@ class InvestigationPlan:
         )
         if not self.tasks:
             raise ValueError("an investigation plan requires at least one Thinker task")
+        context_labels: dict[str, str] = {}
+        for observation in self.observations:
+            if observation.context_key is None:
+                continue
+            previous = context_labels.setdefault(
+                observation.context_key,
+                observation.context_label or "",
+            )
+            if previous != observation.context_label:
+                raise ValueError(
+                    "observations sharing a context_key must share a context_label"
+                )
         object.__setattr__(
             self,
             "ambiguities",
