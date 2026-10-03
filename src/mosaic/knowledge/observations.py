@@ -22,6 +22,8 @@ class Observation:
     unit: str | None
     source: str
     uncertainty: float | None
+    context_id: str | None
+    context_label: str | None
     event_id: str
 
     @classmethod
@@ -34,6 +36,8 @@ class Observation:
         source: str,
         unit: str | None = None,
         uncertainty: float | None = None,
+        context_id: str | None = None,
+        context_label: str | None = None,
         actor: AgentIdentity = KERNEL_IDENTITY,
         observation_id: str | None = None,
     ) -> Event:
@@ -45,6 +49,14 @@ class Observation:
             uncertainty = float(uncertainty)
             if uncertainty < 0:
                 raise ValueError("uncertainty must be non-negative")
+        if context_id is not None:
+            context_id = require_text(context_id, "context_id")
+        if context_label is not None:
+            context_label = require_text(context_label, "context_label")
+        if (context_id is None) != (context_label is None):
+            raise ValueError(
+                "context_id and context_label must be supplied together"
+            )
 
         return Event(
             event_type=EVENT_TYPE,
@@ -57,6 +69,8 @@ class Observation:
                 "unit": unit,
                 "source": source,
                 "uncertainty": uncertainty,
+                "context_id": context_id,
+                "context_label": context_label,
             },
         )
 
@@ -73,6 +87,16 @@ class Observation:
             source=str(p["source"]),
             uncertainty=(
                 None if p["uncertainty"] is None else float(p["uncertainty"])
+            ),
+            context_id=(
+                None
+                if p.get("context_id") is None
+                else str(p["context_id"])
+            ),
+            context_label=(
+                None
+                if p.get("context_label") is None
+                else str(p["context_label"])
             ),
             event_id=event.event_id,
         )
