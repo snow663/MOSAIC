@@ -39,14 +39,6 @@ from .roles import (
     ThinkerTask,
 )
 from .runtime import ResearchCycle, ResearchCycleResult
-from .telemetry import (
-    ModelPricing,
-    TrackedBackend,
-    UsageRecord,
-    UsageTotal,
-    UsageTracker,
-    openai_standard_pricing,
-)
 from .synthesis import (
     CrossDomainReviewer,
     CrossDomainSynthesis,
@@ -58,6 +50,14 @@ from .synthesis import (
     PromotionRecord,
     SynthesisProtocolError,
     SynthesisSession,
+)
+from .telemetry import (
+    ModelPricing,
+    TrackedBackend,
+    UsageRecord,
+    UsageTotal,
+    UsageTracker,
+    openai_standard_pricing,
 )
 
 __all__ = [
@@ -84,16 +84,19 @@ __all__ = [
     "IndependentPass",
     "InvestigationPlan",
     "MinorityReport",
-    "ObservationDraft",
     "ModelBackend",
     "ModelCoordinator",
     "ModelCrossDomainReviewer",
     "ModelExaminer",
+    "ModelPricing",
     "ModelRequest",
     "ModelResponse",
     "ModelThinker",
+    "ObservationDraft",
     "PredictionProposal",
     "PrivateExamination",
+    "ProgressCallback",
+    "ProgressEvent",
     "PromotionCandidate",
     "PromotionExecutor",
     "PromotionRecord",
@@ -106,5 +109,10 @@ __all__ = [
     "Thinker",
     "ThinkerProposal",
     "ThinkerResponse",
-    "ThinkerTask",    "ModelPricing",    "ProgressCallback",    "ProgressEvent",    "TrackedBackend",    "UsageRecord",    "UsageTotal",    "UsageTracker",    "openai_standard_pricing",
+    "ThinkerTask",
+    "TrackedBackend",
+    "UsageRecord",
+    "UsageTotal",
+    "UsageTracker",
+    "openai_standard_pricing",
 ]
