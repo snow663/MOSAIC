@@ -21,6 +21,7 @@ from .model_roles import (
     ModelThinker,
     StructuredOutputError,
 )
+from .progress import ProgressCallback, ProgressEvent
 from .roles import (
     Coordinator,
     CoordinatorReport,
@@ -38,6 +39,14 @@ from .roles import (
     ThinkerTask,
 )
 from .runtime import ResearchCycle, ResearchCycleResult
+from .telemetry import (
+    ModelPricing,
+    TrackedBackend,
+    UsageRecord,
+    UsageTotal,
+    UsageTracker,
+    openai_standard_pricing,
+)
 from .synthesis import (
     CrossDomainReviewer,
     CrossDomainSynthesis,
@@ -97,5 +106,5 @@ __all__ = [
     "Thinker",
     "ThinkerProposal",
     "ThinkerResponse",
-    "ThinkerTask",
+    "ThinkerTask",    "ModelPricing",    "ProgressCallback",    "ProgressEvent",    "TrackedBackend",    "UsageRecord",    "UsageTotal",    "UsageTracker",    "openai_standard_pricing",
 ]
