@@ -151,6 +151,7 @@ class ModelRequest:
     response_schema_name: str | None = None
     response_schema: Mapping[str, Any] | None = None
     usage_tag: str | None = None
+    max_output_tokens: int | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "model", _require_text(self.model, "model"))
@@ -181,6 +182,11 @@ class ModelRequest:
                 "usage_tag",
                 _require_text(self.usage_tag, "usage_tag"),
             )
+        if self.max_output_tokens is not None:
+            value = int(self.max_output_tokens)
+            if value < 1:
+                raise ValueError("max_output_tokens must be positive")
+            object.__setattr__(self, "max_output_tokens", value)
 
 
 @dataclass(frozen=True, slots=True)
