@@ -80,6 +80,25 @@ python examples/hosted_cycle.py \
 If the requested investigation ID does not exist in the configured database,
 the CLI exits instead of silently starting a new stream.
 
+## Interactive clarification review
+
+By default, an interactive terminal run may pause after Coordinator intake and
+before the Thinkers if the Coordinator identifies up to three high-value facts
+that the user may already know. The heartbeat pauses while MOSAIC is waiting
+for input.
+
+Answer each question at the prompt, or press Enter to skip an item. Answers are
+stored in the same investigation and Coordinator intake is refreshed once
+before specialist analysis begins.
+
+For unattended or scripted runs, disable the prompt with:
+
+```bash
+python examples/hosted_cycle.py --no-review "describe the problem"
+```
+
+Non-interactive stdin also skips the review prompt automatically.
+
 ## What happens
 
 One invocation runs:

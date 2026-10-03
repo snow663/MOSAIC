@@ -64,6 +64,8 @@ def _challenge_payload(challenge: ExaminationChallenge) -> dict[str, Any]:
         "question": challenge.question,
         "targeted_claim": challenge.targeted_claim,
         "evidence_refs": list(challenge.evidence_refs),
+        "category": challenge.category.value,
+        "decision_impact": challenge.decision_impact,
     }
 
 
@@ -325,11 +327,14 @@ class PrivateExamination:
                 stage="challenge",
                 message=(
                     f"{examiner.identity.ref} challenged "
-                    f"{thinker.identity.ref}: {review.question}"
+                    f"{thinker.identity.ref} "
+                    f"[{review.category.value}]: {review.question}"
                 ),
                 actor_ref=examiner.identity.ref,
                 task_id=task.task_id,
                 round=round_number,
+                challenge_category=review.category.value,
+                decision_impact=review.decision_impact,
             )
             emit_progress(
                 self.progress,

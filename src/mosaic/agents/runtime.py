@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, replace
 from typing import Mapping
 from uuid import uuid4
@@ -18,6 +19,7 @@ from .roles import (
     ExaminationResult,
     Examiner,
     InvestigationPlan,
+    ReviewRequest,
     Thinker,
 )
 from .synthesis import (
@@ -29,6 +31,9 @@ from .synthesis import (
 )
 
 
+ReviewInputProvider = Callable[[ReviewRequest], Awaitable[str | None]]
+
+
 @dataclass(frozen=True, slots=True)
 class ResearchCycleResult:
     """Complete result of one MOSAIC investigation cycle."""
@@ -38,6 +43,8 @@ class ResearchCycleResult:
     synthesis: CrossDomainSynthesis
     promotions: tuple[PromotionRecord, ...]
     report: CoordinatorReport
+    review_request: ReviewRequest | None = None
+    review_response: str | None = None
 
 
 class ResearchCycle:
@@ -52,6 +59,7 @@ class ResearchCycle:
         reviewer: CrossDomainReviewer,
         max_examination_rounds: int = 6,
         progress: ProgressCallback | None = None,
+        review_input_provider: ReviewInputProvider | None = None,
     ) -> None:
         if not thinkers:
             raise ValueError("at least one Thinker is required")
@@ -61,6 +69,7 @@ class ResearchCycle:
         self.reviewer = reviewer
         self.max_examination_rounds = max_examination_rounds
         self.progress = progress
+        self.review_input_provider = review_input_provider
 
         for ref, thinker in self.thinkers.items():
             if ref != thinker.identity.ref:
@@ -105,6 +114,104 @@ class ResearchCycle:
                 for item in promotions
             ],
         }
+
+    def _record_intake_plan(
+        self,
+        *,
+        investigation: Investigation,
+        plan: InvestigationPlan,
+        raw_input: str,
+        input_kind: str,
+    ) -> InvestigationPlan:
+        reported_context_count = len(
+            {
+                draft.context_key
+                for draft in plan.observations
+                if draft.context_key is not None
+            }
+        )
+
+        investigation.store.append(
+            Event(
+                event_type="coordinator.intake_completed",
+                stream_id=investigation.investigation_id,
+                actor=self.coordinator.identity,
+                correlation_id=plan.plan_id,
+                payload={
+                    "plan_id": plan.plan_id,
+                    "input_kind": input_kind,
+                    "raw_user_input": raw_input,
+                    "normalized_input": plan.normalized_input,
+                    "question": plan.question,
+                    "ambiguities": list(plan.ambiguities),
+                    "clarification_questions": list(
+                        plan.clarification_questions
+                    ),
+                    "task_ids": [task.task_id for task in plan.tasks],
+                    "observation_count": len(plan.observations),
+                    "reported_event_group_count": reported_context_count,
+                },
+            )
+        )
+
+        new_observation_ids: list[str] = []
+        context_ids: dict[str, str] = {}
+        for draft in plan.observations:
+            context_id = None
+            if draft.context_key is not None:
+                context_id = context_ids.setdefault(
+                    draft.context_key,
+                    f"CTX-{uuid4()}",
+                )
+            observation = investigation.record_observation(
+                name=draft.name,
+                value=draft.value,
+                unit=draft.unit,
+                uncertainty=draft.uncertainty,
+                context_id=context_id,
+                context_label=draft.context_label,
+                source=f"{input_kind}:{plan.plan_id}",
+                actor=self.coordinator.identity,
+            )
+            new_observation_ids.append(observation.observation_id)
+
+        if not new_observation_ids:
+            return plan
+
+        return replace(
+            plan,
+            tasks=tuple(
+                replace(
+                    task,
+                    observation_ids=tuple(
+                        dict.fromkeys(
+                            (
+                                *task.observation_ids,
+                                *new_observation_ids,
+                            )
+                        )
+                    ),
+                )
+                for task in plan.tasks
+            ),
+        )
+
+    @staticmethod
+    def _clarification_input(
+        request: ReviewRequest,
+        response: str,
+    ) -> str:
+        questions = "\n".join(
+            f"{index}. {question}"
+            for index, question in enumerate(request.questions, start=1)
+        )
+        return (
+            "MOSAIC CLARIFICATION CONTEXT "
+            "(the questions below are not user observations):\n"
+            f"{questions}\n\n"
+            "USER CLARIFICATION RESPONSE:\n"
+            f"{response.strip()}"
+        )
 
     async def run(
         self,
@@ -153,64 +260,113 @@ class ResearchCycle:
             reported_event_groups=reported_context_count,
         )
 
-        investigation.store.append(
-            Event(
-                event_type="coordinator.intake_completed",
-                stream_id=investigation.investigation_id,
-                actor=self.coordinator.identity,
-                correlation_id=plan.plan_id,
-                payload={
-                    "plan_id": plan.plan_id,
-                    "raw_user_input": user_input,
-                    "normalized_input": plan.normalized_input,
-                    "question": plan.question,
-                    "ambiguities": list(plan.ambiguities),
-                    "task_ids": [task.task_id for task in plan.tasks],
-                    "observation_count": len(plan.observations),
-                    "reported_event_group_count": reported_context_count,
-                },
-            )
+        plan = self._record_intake_plan(
+            investigation=investigation,
+            plan=plan,
+            raw_input=user_input,
+            input_kind="user_input",
         )
 
-        new_observation_ids: list[str] = []
-        context_ids: dict[str, str] = {}
-        for draft in plan.observations:
-            context_id = None
-            if draft.context_key is not None:
-                context_id = context_ids.setdefault(
-                    draft.context_key,
-                    f"CTX-{uuid4()}",
+        review_request = None
+        review_response = None
+        if plan.clarification_questions and self.review_input_provider is not None:
+            review_request = ReviewRequest(
+                coordinator_ref=self.coordinator.identity.ref,
+                plan_id=plan.plan_id,
+                questions=plan.clarification_questions,
+            )
+            investigation.store.append(
+                Event(
+                    event_type="review.requested",
+                    stream_id=investigation.investigation_id,
+                    actor=self.coordinator.identity,
+                    correlation_id=review_request.review_id,
+                    payload={
+                        "review_id": review_request.review_id,
+                        "plan_id": plan.plan_id,
+                        "questions": list(review_request.questions),
+                    },
                 )
-            observation = investigation.record_observation(
-                name=draft.name,
-                value=draft.value,
-                unit=draft.unit,
-                uncertainty=draft.uncertainty,
-                context_id=context_id,
-                context_label=draft.context_label,
-                source=f"user_input:{plan.plan_id}",
-                actor=self.coordinator.identity,
             )
-            new_observation_ids.append(observation.observation_id)
-
-        if new_observation_ids:
-            plan = replace(
-                plan,
-                tasks=tuple(
-                    replace(
-                        task,
-                        observation_ids=tuple(
-                            dict.fromkeys(
-                                (
-                                    *task.observation_ids,
-                                    *new_observation_ids,
-                                )
-                            )
-                        ),
-                    )
-                    for task in plan.tasks
+            emit_progress(
+                self.progress,
+                stage="review",
+                message=(
+                    f"Coordinator is requesting {len(review_request.questions)} "
+                    f"clarification answer(s) before specialist analysis."
                 ),
+                actor_ref=self.coordinator.identity.ref,
+                questions=len(review_request.questions),
             )
+            candidate = await self.review_input_provider(review_request)
+            if candidate is not None and candidate.strip():
+                review_response = candidate.strip()
+                investigation.store.append(
+                    Event(
+                        event_type="review.response_received",
+                        stream_id=investigation.investigation_id,
+                        actor=self.coordinator.identity,
+                        correlation_id=review_request.review_id,
+                        payload={
+                            "review_id": review_request.review_id,
+                            "plan_id": plan.plan_id,
+                            "raw_user_response": review_response,
+                        },
+                    )
+                )
+                investigation.replay()
+                emit_progress(
+                    self.progress,
+                    stage="coordinator",
+                    message="Coordinator is integrating clarification answers.",
+                    actor_ref=self.coordinator.identity.ref,
+                )
+                followup_plan = await CoordinatorSession.intake(
+                    coordinator=self.coordinator,
+                    user_input=self._clarification_input(
+                        review_request,
+                        review_response,
+                    ),
+                    snapshot=investigation.snapshot(),
+                    available_thinkers=tuple(self.thinkers.values()),
+                )
+                plan = self._record_intake_plan(
+                    investigation=investigation,
+                    plan=replace(
+                        followup_plan,
+                        clarification_questions=(),
+                    ),
+                    raw_input=review_response,
+                    input_kind="review_input",
+                )
+                emit_progress(
+                    self.progress,
+                    stage="review",
+                    message=(
+                        f"Clarification integrated; proceeding with "
+                        f"{len(plan.tasks)} specialist task(s)."
+                    ),
+                    actor_ref=self.coordinator.identity.ref,
+                )
+            else:
+                investigation.store.append(
+                    Event(
+                        event_type="review.skipped",
+                        stream_id=investigation.investigation_id,
+                        actor=self.coordinator.identity,
+                        correlation_id=review_request.review_id,
+                        payload={
+                            "review_id": review_request.review_id,
+                            "plan_id": plan.plan_id,
+                        },
+                    )
+                )
+                emit_progress(
+                    self.progress,
+                    stage="review",
+                    message="Clarification skipped; proceeding with existing evidence.",
+                    actor_ref=self.coordinator.identity.ref,
+                )
 
         # Direct audit writes do not mutate the in-memory Investigation state.
         # Replay once so every Thinker receives the same snapshot containing
@@ -325,4 +481,6 @@ class ResearchCycle:
             synthesis=synthesis,
             promotions=promotions,
             report=report,
+            review_request=review_request,
+            review_response=review_response,
         )

@@ -23,6 +23,7 @@ from .model_roles import (
 )
 from .progress import ProgressCallback, ProgressEvent
 from .roles import (
+    ChallengeCategory,
     Coordinator,
     CoordinatorReport,
     ExaminationChallenge,
@@ -33,12 +34,13 @@ from .roles import (
     ExaminerReview,
     InvestigationPlan,
     ObservationDraft,
+    ReviewRequest,
     Thinker,
     ThinkerProposal,
     ThinkerResponse,
     ThinkerTask,
 )
-from .runtime import ResearchCycle, ResearchCycleResult
+from .runtime import ResearchCycle, ResearchCycleResult, ReviewInputProvider
 from .synthesis import (
     CrossDomainReviewer,
     CrossDomainSynthesis,
@@ -115,4 +117,7 @@ __all__ = [
     "UsageTotal",
     "UsageTracker",
     "openai_standard_pricing",
+    "ChallengeCategory",
+    "ReviewInputProvider",
+    "ReviewRequest",
 ]

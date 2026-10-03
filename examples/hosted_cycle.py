@@ -16,6 +16,7 @@ from mosaic.agents import (
     ModelThinker,
     ProgressEvent,
     ResearchCycle,
+    ReviewRequest,
     TrackedBackend,
     UsageTracker,
     openai_standard_pricing,
@@ -41,6 +42,7 @@ class ConsoleProgress:
         self.stage = "startup"
         self.message = "Initializing MOSAIC."
         self.running = True
+        self.suspended = False
         self._width = 0
 
     def _clear_pulse(self) -> None:
@@ -63,6 +65,9 @@ class ConsoleProgress:
         index = 0
         try:
             while self.running:
+                if self.suspended:
+                    await asyncio.sleep(0.1)
+                    continue
                 elapsed = time.monotonic() - self.started
                 frame = self._frames[index % len(self._frames)]
                 line = (
@@ -77,6 +82,35 @@ class ConsoleProgress:
                 await asyncio.sleep(0.25)
         finally:
             self._clear_pulse()
+
+    def suspend(self) -> None:
+        self._clear_pulse()
+        self.suspended = True
+
+    def resume(self) -> None:
+        self.suspended = False
+
+    async def ask_review(self, request: ReviewRequest) -> str | None:
+        self.suspend()
+        try:
+            print("\nREVIEW QUESTIONS")
+            print(
+                "Answer what you know. Press Enter for any item you cannot answer.",
+                flush=True,
+            )
+            answers: list[str] = []
+            for index, question in enumerate(request.questions, start=1):
+                print(f"\n{index}. {question}", flush=True)
+                answer = await asyncio.to_thread(input, "> ")
+                if answer.strip():
+                    answers.append(
+                        f"Q{index}: {question}\nA{index}: {answer.strip()}"
+                    )
+            if not answers:
+                return None
+            return "\n\n".join(answers)
+        finally:
+            self.resume()
 
     def stop(self) -> None:
         self.running = False
@@ -158,6 +192,7 @@ async def main(
     user_input: str,
     *,
     investigation_id: str | None = None,
+    enable_review: bool = True,
 ) -> None:
     model = require_env("MOSAIC_MODEL")
     base_url = os.getenv(
@@ -269,12 +304,18 @@ async def main(
     )
 
     progress = ConsoleProgress()
+    review_provider = (
+        progress.ask_review
+        if enable_review and sys.stdin.isatty()
+        else None
+    )
     cycle = ResearchCycle(
         coordinator=coordinator,
         thinkers=thinkers,
         examiner=examiner,
         reviewer=reviewer,
         progress=progress.on_event,
+        review_input_provider=review_provider,
     )
 
     pulse_task = asyncio.create_task(progress.pulse())
@@ -324,6 +365,11 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--no-review",
+        action="store_true",
+        help="Skip the interactive clarification review stage.",
+    )
+    parser.add_argument(
         "prompt",
         nargs="+",
         help="Problem or observation to investigate.",
@@ -337,5 +383,6 @@ if __name__ == "__main__":
         main(
             " ".join(args.prompt),
             investigation_id=args.continue_id,
+            enable_review=not args.no_review,
         )
     )

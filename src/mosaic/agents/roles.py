@@ -39,6 +39,18 @@ def _freeze_json(value: Any) -> Any:
     return value
 
 
+class ChallengeCategory(StrEnum):
+    """Reason class for an Examiner challenge."""
+
+    EVIDENCE_GAP = "evidence_gap"
+    FALSIFIABILITY = "falsifiability"
+    CONTRADICTION = "contradiction"
+    CONFIDENCE = "confidence"
+    EXPERIMENT_DESIGN = "experiment_design"
+    SAFETY = "safety"
+    OTHER = "other"
+
+
 class ExaminationDisposition(StrEnum):
     """Permitted terminal states for a private examination."""
 
@@ -124,6 +136,7 @@ class InvestigationPlan:
     tasks: tuple[ThinkerTask, ...]
     observations: tuple[ObservationDraft, ...] = ()
     ambiguities: tuple[str, ...] = ()
+    clarification_questions: tuple[str, ...] = ()
     plan_id: str = field(default_factory=lambda: _id("PLAN"))
 
     def __post_init__(self) -> None:
@@ -157,6 +170,13 @@ class InvestigationPlan:
             "ambiguities",
             tuple(_text(item, "ambiguity") for item in self.ambiguities),
         )
+        questions = tuple(
+            _text(item, "clarification_question")
+            for item in self.clarification_questions
+        )
+        if len(questions) > 3:
+            raise ValueError("at most 3 clarification questions are allowed")
+        object.__setattr__(self, "clarification_questions", questions)
 
 
 @dataclass(frozen=True, slots=True)
@@ -191,6 +211,8 @@ class ExaminationChallenge:
     question: str
     targeted_claim: str | None = None
     evidence_refs: tuple[str, ...] = ()
+    category: ChallengeCategory = ChallengeCategory.OTHER
+    decision_impact: str | None = None
     challenge_id: str = field(default_factory=lambda: _id("Q"))
 
     def __post_init__(self) -> None:
@@ -209,6 +231,17 @@ class ExaminationChallenge:
             "evidence_refs",
             tuple(_text(item, "evidence_ref") for item in self.evidence_refs),
         )
+        object.__setattr__(
+            self,
+            "category",
+            ChallengeCategory(self.category),
+        )
+        if self.decision_impact is not None:
+            object.__setattr__(
+                self,
+                "decision_impact",
+                _text(self.decision_impact, "decision_impact"),
+            )
 
 
 @dataclass(frozen=True, slots=True)
@@ -291,6 +324,33 @@ class ExaminationResult:
                 "initial_proposal_id",
                 _text(self.initial_proposal_id, "initial_proposal_id"),
             )
+
+
+@dataclass(frozen=True, slots=True)
+class ReviewRequest:
+    """Coordinator request for one optional round of factual user clarification."""
+
+    coordinator_ref: str
+    plan_id: str
+    questions: tuple[str, ...]
+    review_id: str = field(default_factory=lambda: _id("REVIEW"))
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "coordinator_ref",
+            _text(self.coordinator_ref, "coordinator_ref"),
+        )
+        object.__setattr__(self, "plan_id", _text(self.plan_id, "plan_id"))
+        questions = tuple(
+            _text(item, "review_question")
+            for item in self.questions
+        )
+        if not questions:
+            raise ValueError("review request requires at least one question")
+        if len(questions) > 3:
+            raise ValueError("review request allows at most 3 questions")
+        object.__setattr__(self, "questions", questions)
 
 
 @dataclass(frozen=True, slots=True)
