@@ -85,3 +85,42 @@ def test_backend_extracts_usage_metadata():
     }
 
     assert OpenAICompatibleBackend._extract_usage(data) == (123, 45, 67, 8)
+
+
+def test_backend_sends_provider_configurable_completion_budget():
+    backend = OpenAICompatibleBackend(
+        backend_id="hosted",
+        base_url="https://example.invalid/v1",
+        api_key="secret",
+        completion_token_field="max_completion_tokens",
+    )
+    request = ModelRequest(
+        model="model-x",
+        system="Return JSON.",
+        input_text="input",
+        max_output_tokens=777,
+    )
+
+    payload = backend._payload(request)
+
+    assert payload["max_completion_tokens"] == 777
+
+
+def test_backend_can_use_legacy_max_tokens_field():
+    backend = OpenAICompatibleBackend(
+        backend_id="local",
+        base_url="http://127.0.0.1:8080/v1",
+        api_key_env=None,
+        completion_token_field="max_tokens",
+    )
+    request = ModelRequest(
+        model="local-model",
+        system="Return JSON.",
+        input_text="input",
+        max_output_tokens=555,
+    )
+
+    payload = backend._payload(request)
+
+    assert payload["max_tokens"] == 555
+    assert "max_completion_tokens" not in payload
