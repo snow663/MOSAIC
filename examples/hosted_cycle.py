@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 import asyncio
 import os
 import sys
@@ -20,6 +21,7 @@ from mosaic.agents import (
     openai_standard_pricing,
 )
 from mosaic.backends import OpenAICompatibleBackend
+from mosaic.session import new_investigation_id
 
 
 def require_env(name: str) -> str:
@@ -152,7 +154,11 @@ def print_usage(tracker: UsageTracker) -> None:
         )
 
 
-async def main(user_input: str) -> None:
+async def main(
+    user_input: str,
+    *,
+    investigation_id: str | None = None,
+) -> None:
     model = require_env("MOSAIC_MODEL")
     base_url = os.getenv(
         "MOSAIC_BASE_URL",
@@ -274,7 +280,24 @@ async def main(user_input: str) -> None:
     pulse_task = asyncio.create_task(progress.pulse())
     try:
         with SQLiteEventStore(database) as store:
-            investigation = Investigation(store, "interactive")
+            resolved_id = investigation_id or new_investigation_id()
+            if investigation_id is not None:
+                existing = tuple(store.events_for_stream(resolved_id))
+                if not existing:
+                    raise SystemExit(
+                        f"investigation {resolved_id!r} does not exist in "
+                        f"{database!r}"
+                    )
+                mode = "continuing"
+            else:
+                mode = "new"
+
+            progress._clear_pulse()
+            print(
+                f"[INVESTIGATION] {resolved_id} ({mode})",
+                flush=True,
+            )
+            investigation = Investigation(store, resolved_id)
             result = await cycle.run(
                 investigation=investigation,
                 user_input=user_input,
@@ -287,9 +310,32 @@ async def main(user_input: str) -> None:
     print_usage(tracker)
 
 
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Run one MOSAIC investigation cycle.",
+    )
+    parser.add_argument(
+        "--continue",
+        dest="continue_id",
+        metavar="INVESTIGATION_ID",
+        help=(
+            "Continue an existing investigation instead of creating "
+            "a fresh one."
+        ),
+    )
+    parser.add_argument(
+        "prompt",
+        nargs="+",
+        help="Problem or observation to investigate.",
+    )
+    return parser.parse_args()
+
+
 if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        raise SystemExit(
-            'usage: python examples/hosted_cycle.py "describe the problem"'
+    args = parse_args()
+    asyncio.run(
+        main(
+            " ".join(args.prompt),
+            investigation_id=args.continue_id,
         )
-    asyncio.run(main(" ".join(sys.argv[1:])))
+    )
