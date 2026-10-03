@@ -98,6 +98,23 @@ The Coordinator may summarize, organize, and explain findings, but its final
 answer must remain traceable to the institutional record.
 
 
+### Intake clarification review
+
+Before the first specialist pass, the Coordinator may ask up to three factual
+questions when the answers could materially narrow the investigation and are
+likely to be available from the user's existing knowledge, configuration,
+history, or measurements.
+
+This is a single optional review round. It is not an invitation for the
+Coordinator to conduct science or prescribe a new experiment. If the user
+answers, those answers are appended as new observations in the same
+investigation and intake is refreshed once before the specialist snapshot is
+frozen. If the user skips the questions, analysis proceeds with the existing
+evidence.
+
+The clarification questions themselves are never observations.
+
+
 ### Reported observation context
 
 Atomic measurements are not sufficient when the user's report also states a
@@ -190,6 +207,18 @@ Examiner disposition
 The loop ends when the Examiner can issue a disposition, not merely when the
 two models agree.
 
+
+Examiner challenges are classified by concern type: evidence gap,
+falsifiability, contradiction, confidence, experiment design, safety, or other.
+A challenge should be issued only when resolving it could materially change the
+disposition, confidence, viability of a hypothesis, or the discriminating
+experiment. Once a category has been challenged, a lingering concern in that
+same category should normally become a reservation or unresolved question
+rather than another round. Safety remains mandatory, but after a safe
+prerequisite or abort condition is established the Examiner should not
+iteratively optimize procedural thresholds unless the proposed test is still
+unsafe or impossible.
+
 ## Examiner dispositions
 
 Every examined finding must end in one of the following states:
@@ -230,12 +259,17 @@ The default MOSAIC reasoning pipeline is:
 USER
  |
  v
-COORDINATOR
+COORDINATOR INTAKE
  |
  |  extract observations
- |  define question
- |  select specialists
- |  create neutral task packets
+ |  preserve reported event context
+ |  identify up to three high-value factual clarifications
+ v
+OPTIONAL USER REVIEW
+ |
+ |  user answers known configuration/history/measurement questions
+ |  Coordinator records only the user's new facts
+ |  intake is refreshed once
  v
 FROZEN INVESTIGATION SNAPSHOT
  |
