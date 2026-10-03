@@ -966,56 +966,97 @@ class ModelExaminer:
                 "statistics",
             ],
         )
+        challenged_categories = [
+            exchange.challenge.category.value
+            for exchange in transcript
+        ]
+        system_prompt = (
+            "You are the MOSAIC Examiner. You are an epistemic gatekeeper, "
+            "not a summarizer. Attempt to break the supplied Thinker proposal. "
+            "Ask one focused challenge of no more than 2 sentences only when "
+            "resolving it could materially change the disposition, confidence, "
+            "viability of a hypothesis, or the discriminating experiment. Classify "
+            "every challenge by challenge_category and state that material effect "
+            "in decision_impact. Never challenge the same concern category twice "
+            "in one examination; if a concern persists after the Thinker's answer, "
+            "carry it into reservations or unresolved questions instead. For safety, "
+            "once a safe prerequisite or abort condition has been identified, do "
+            "not keep optimizing procedural thresholds unless the proposed experiment "
+            "remains unsafe or impossible. Prefer scientific discrimination over "
+            "procedural refinement. Issue a terminal disposition when another "
+            "materially useful challenge is not needed. Keep findings_summary to at most 3 "
+            "sentences, reservations to at most 3 concise items, unresolved "
+            "questions to at most 3 concise items, and include statistics only "
+            "when they add information. Do not restate evidence already present. "
+            "Treat reported_events as preserved direct context: do not challenge "
+            "a timing or co-occurrence link merely because its atomic observations "
+            "are stored separately, but do challenge causal inferences beyond that "
+            "link. Do not force agreement when evidence is insufficient; use unresolved. "
+            f"Examiner instructions: {self.instructions} "
+            "Return only the requested JSON."
+        )
+        review_payload = {
+            "investigation": _observation_context(
+                snapshot,
+                task.observation_ids,
+                include_prior_hypotheses=True,
+            ),
+            "task": {
+                "task_id": task.task_id,
+                "question": task.question,
+                "scope": task.scope,
+            },
+            "proposal": _proposal_payload(proposal),
+            "transcript": _compact_transcript(transcript),
+            "challenged_categories": challenged_categories,
+        }
         data = await _call_json(
             backend=self.backend,
             model=self.model,
             schema_name="mosaic_examiner_review",
             usage_tag=f"{self.identity.ref}:review",
             schema=schema,
-            system=(
-                "You are the MOSAIC Examiner. You are an epistemic gatekeeper, "
-                "not a summarizer. Attempt to break the supplied Thinker proposal. "
-                "Ask one focused challenge of no more than 2 sentences only when "
-                "resolving it could materially change the disposition, confidence, "
-                "viability of a hypothesis, or the discriminating experiment. Classify "
-                "every challenge by challenge_category and state that material effect "
-                "in decision_impact. Never challenge the same concern category twice "
-                "in one examination; if a concern persists after the Thinker's answer, "
-                "carry it into reservations or unresolved questions instead. For safety, "
-                "once a safe prerequisite or abort condition has been identified, do "
-                "not keep optimizing procedural thresholds unless the proposed experiment "
-                "remains unsafe or impossible. Prefer scientific discrimination over "
-                "procedural refinement. Issue a terminal disposition when another "
-                "materially useful challenge is not needed. Keep findings_summary to at most 3 "
-                "sentences, reservations to at most 3 concise items, unresolved "
-                "questions to at most 3 concise items, and include statistics only "
-                "when they add information. Do not restate evidence already present. "
-                "Treat reported_events as preserved direct context: do not challenge "
-                "a timing or co-occurrence link merely because its atomic observations "
-                "are stored separately, but do challenge causal inferences beyond that "
-                "link. Do not force agreement when evidence is insufficient; use unresolved. "
-                f"Examiner instructions: {self.instructions} "
-                "Return only the requested JSON."
-            ),
-            payload={
-                "investigation": _observation_context(
-                    snapshot,
-                    task.observation_ids,
-                    include_prior_hypotheses=True,
-                ),
-                "task": {
-                    "task_id": task.task_id,
-                    "question": task.question,
-                    "scope": task.scope,
-                },
-                "proposal": _proposal_payload(proposal),
-                "transcript": _compact_transcript(transcript),
-                "challenged_categories": [
-                    exchange.challenge.category.value
-                    for exchange in transcript
-                ],
-            },
+            system=system_prompt,
+            payload=review_payload,
         )
+
+        if data.get("action") == "challenge":
+            proposed_category = data.get("challenge_category")
+            if (
+                proposed_category is not None
+                and str(proposed_category) in challenged_categories
+            ):
+                data = await _call_json(
+                    backend=self.backend,
+                    model=self.model,
+                    schema_name="mosaic_examiner_review",
+                    usage_tag=f"{self.identity.ref}:review",
+                    schema=schema,
+                    system=(
+                        system_prompt
+                        + " Your immediately previous draft repeated a challenge "
+                        f"category already used in this examination: "
+                        f"{proposed_category}. Do not repeat it. Issue a terminal "
+                        "disposition carrying the lingering concern as a reservation "
+                        "or unresolved question, unless a different challenge category "
+                        "would materially change the decision."
+                    ),
+                    payload={
+                        **review_payload,
+                        "suppressed_duplicate_category": str(
+                            proposed_category
+                        ),
+                    },
+                )
+                if (
+                    data.get("action") == "challenge"
+                    and data.get("challenge_category") is not None
+                    and str(data["challenge_category"])
+                    in challenged_categories
+                ):
+                    raise StructuredOutputError(
+                        "Examiner repeated a challenge category after utility retry"
+                    )
 
         if data.get("action") == "challenge":
             question = data.get("question")
