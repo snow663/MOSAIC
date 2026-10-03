@@ -56,6 +56,7 @@ class OpenAICompatibleBackend:
         location: BackendLocation = BackendLocation.REMOTE,
         timeout_seconds: float = 120.0,
         structured_outputs: bool = True,
+        completion_token_field: str = "max_completion_tokens",
         extra_headers: dict[str, str] | None = None,
     ) -> None:
         self.backend_id = backend_id.strip()
@@ -72,6 +73,9 @@ class OpenAICompatibleBackend:
         self.location = BackendLocation(location)
         self.timeout_seconds = float(timeout_seconds)
         self.structured_outputs = bool(structured_outputs)
+        self.completion_token_field = completion_token_field.strip()
+        if not self.completion_token_field:
+            raise ValueError("completion_token_field must be non-empty")
         self.extra_headers = dict(extra_headers or {})
         self._api_key = api_key
         self._api_key_env = api_key_env
@@ -98,6 +102,8 @@ class OpenAICompatibleBackend:
                 {"role": "user", "content": model_request.input_text},
             ],
         }
+        if model_request.max_output_tokens is not None:
+            payload[self.completion_token_field] = model_request.max_output_tokens
 
         if model_request.response_schema is not None:
             schema = _plain_json(model_request.response_schema)
@@ -122,6 +128,17 @@ class OpenAICompatibleBackend:
                 payload["response_format"] = {"type": "json_object"}
 
         return payload
+
+    @staticmethod
+    def _assert_completion_within_budget(data: dict[str, Any]) -> None:
+        try:
+            finish_reason = data["choices"][0].get("finish_reason")
+        except (KeyError, IndexError, TypeError, AttributeError):
+            finish_reason = None
+        if finish_reason == "length":
+            raise BackendProtocolError(
+                "backend completion reached the configured output token limit"
+            )
 
     @staticmethod
     def _extract_text(data: dict[str, Any]) -> str:
@@ -238,6 +255,7 @@ class OpenAICompatibleBackend:
         if not isinstance(data, dict):
             raise BackendProtocolError("backend response root must be an object")
 
+        self._assert_completion_within_budget(data)
         output_text = self._extract_text(data)
         response_model = data.get("model")
         if not isinstance(response_model, str) or not response_model.strip():

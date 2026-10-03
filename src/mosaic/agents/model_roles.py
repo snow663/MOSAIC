@@ -304,6 +304,7 @@ async def _call_json(
     schema_name: str,
     schema: Mapping[str, Any],
     usage_tag: str | None = None,
+    max_output_tokens: int | None = None,
 ) -> dict[str, Any]:
     response = await backend.generate(
         ModelRequest(
@@ -317,6 +318,7 @@ async def _call_json(
             response_schema_name=schema_name,
             response_schema=schema,
             usage_tag=usage_tag,
+            max_output_tokens=max_output_tokens,
         )
     )
     try:
@@ -463,6 +465,7 @@ class ModelCoordinator:
             model=self.model,
             schema_name="mosaic_coordinator_intake",
             usage_tag=f"{self.identity.ref}:intake",
+            max_output_tokens=1000,
             schema=schema,
             system=(
                 "You are the MOSAIC Coordinator. Act as a restrained professional "
@@ -471,8 +474,9 @@ class ModelCoordinator:
                 "observations, and route neutral tasks to relevant Thinkers. Never "
                 "convert an inferred mechanism or interpretation into an observation. "
                 "Do not originate hypotheses, suggest likely answers, or contaminate "
-                "one specialist with another specialist's view. Return only the "
-                "requested JSON."
+                "one specialist with another specialist's view. Keep the normalized "
+                "input and question brief, route only specialists that materially add "
+                "value, and keep ambiguities concise. Return only the requested JSON."
             ),
             payload={
                 "user_input": user_input,
@@ -582,6 +586,7 @@ class ModelCoordinator:
             model=self.model,
             schema_name="mosaic_coordinator_report",
             usage_tag=f"{self.identity.ref}:report",
+            max_output_tokens=1200,
             schema=schema,
             system=(
                 "You are the MOSAIC Coordinator in reporting mode. Produce a "
@@ -591,8 +596,10 @@ class ModelCoordinator:
                 "actually supported by the evidence under established, plausible "
                 "surviving mechanisms under surviving_hypotheses, and name the "
                 "single most discriminating next test under key_test when one is "
-                "available. Do not invent scientific conclusions, alter confidence, "
-                "suppress minority findings, or hide unresolved questions. Represent "
+                "available. Keep each list item to one sentence and avoid repeating "
+                "the same fact in multiple sections. Do not invent scientific "
+                "conclusions, alter confidence, suppress minority findings, or hide "
+                "unresolved questions. Represent "
                 "every supplied finding. Examiner status is generated "
                 "deterministically by MOSAIC, so do not reproduce internal IDs. "
                 "Return only the requested JSON."
@@ -661,7 +668,11 @@ class ModelThinker:
         return (
             "You are a MOSAIC Thinker. Perform independent domain reasoning. "
             "Generate testable mechanisms, explicit assumptions, falsifiable "
-            "predictions, and concise auditable rationale. Do not claim that "
+            "predictions, and concise auditable rationale. Return at most 3 distinct "
+            "hypotheses, at most 2 predictions per hypothesis, at most 3 open "
+            "questions, a summary of no more than 2 sentences, and rationale of no "
+            "more than 2 sentences per hypothesis. Prefer discriminating predictions "
+            "over exhaustive possibilities. Do not claim that "
             "another specialist agrees with you unless that information is in "
             "the supplied context. Do not fabricate observations. "
             f"Specialist instructions: {self.instructions} "
@@ -678,6 +689,7 @@ class ModelThinker:
             model=self.model,
             schema_name="mosaic_thinker_proposal",
             usage_tag=f"{self.identity.ref}:investigate",
+            max_output_tokens=1800,
             schema=_proposal_schema(),
             system=self._system,
             payload={
@@ -721,12 +733,15 @@ class ModelThinker:
             model=self.model,
             schema_name="mosaic_thinker_examination_response",
             usage_tag=f"{self.identity.ref}:examination_response",
+            max_output_tokens=1400,
             schema=schema,
             system=(
                 self._system
-                + " Answer the Examiner's challenge directly. Revise your "
-                "proposal when the challenge exposes a material weakness; "
-                "otherwise return null for revised_proposal."
+                + " Answer the Examiner's challenge directly in no more than 4 "
+                "sentences. Do not restate the whole proposal or evidence. Revise "
+                "your proposal only when the challenge exposes a material weakness; "
+                "otherwise return null for revised_proposal. Any revision must retain "
+                "the same compact limits as the original proposal."
             ),
             payload={
                 "investigation": _observation_context(
@@ -859,14 +874,18 @@ class ModelExaminer:
             model=self.model,
             schema_name="mosaic_examiner_review",
             usage_tag=f"{self.identity.ref}:review",
+            max_output_tokens=1100,
             schema=schema,
             system=(
                 "You are the MOSAIC Examiner. You are an epistemic gatekeeper, "
                 "not a summarizer. Attempt to break the supplied Thinker proposal. "
-                "Ask one focused challenge when a material weakness remains. Issue "
-                "a terminal disposition only when another challenge is not needed. "
-                "Do not force agreement when evidence is insufficient; use "
-                "unresolved. "
+                "Ask one focused challenge of no more than 2 sentences when a "
+                "material weakness remains. Issue a terminal disposition only when "
+                "another challenge is not needed. Keep findings_summary to at most 3 "
+                "sentences, reservations to at most 3 concise items, unresolved "
+                "questions to at most 3 concise items, and include statistics only "
+                "when they add information. Do not restate evidence already present. "
+                "Do not force agreement when evidence is insufficient; use unresolved. "
                 f"Examiner instructions: {self.instructions} "
                 "Return only the requested JSON."
             ),
@@ -1054,14 +1073,18 @@ class ModelCrossDomainReviewer:
             model=self.model,
             schema_name="mosaic_cross_domain_synthesis",
             usage_tag=f"{self.identity.ref}:synthesis",
+            max_output_tokens=1600,
             schema=schema,
             system=(
                 "You are the MOSAIC cross-domain reviewer. Compare only the "
                 "already-examined findings. Identify agreements, contradictions, "
                 "overlap, dependencies, minority positions, and unresolved "
-                "questions. Preserve meaningful alternatives. Do not promote a "
-                "rejected finding. Select explicit hypothesis indices for graph "
-                "promotion when warranted. Return only the requested JSON."
+                "questions. Preserve meaningful alternatives. Keep the summary to at "
+                "most 3 sentences, relation and promotion rationales to one sentence, "
+                "and unresolved questions to the smallest discriminating set. Do not "
+                "repeat the same finding in several forms. Do not promote a rejected "
+                "finding. Select explicit hypothesis indices for graph promotion when "
+                "warranted. Return only the requested JSON."
             ),
             payload={
                 "investigation": _observation_context(snapshot),
