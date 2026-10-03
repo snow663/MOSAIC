@@ -154,6 +154,43 @@ class OpenAICompatibleBackend:
             "backend response did not contain assistant text content"
         )
 
+    @staticmethod
+    def _extract_usage(
+        data: dict[str, Any],
+    ) -> tuple[int | None, int | None, int | None, int | None]:
+        usage = data.get("usage")
+        if not isinstance(usage, dict):
+            return None, None, None, None
+
+        input_tokens = usage.get("prompt_tokens")
+        output_tokens = usage.get("completion_tokens")
+
+        prompt_details = usage.get("prompt_tokens_details")
+        cached_input_tokens = None
+        if isinstance(prompt_details, dict):
+            cached_input_tokens = prompt_details.get("cached_tokens")
+
+        completion_details = usage.get("completion_tokens_details")
+        reasoning_tokens = None
+        if isinstance(completion_details, dict):
+            reasoning_tokens = completion_details.get("reasoning_tokens")
+
+        def normalized(value: Any) -> int | None:
+            if value is None:
+                return None
+            try:
+                result = int(value)
+            except (TypeError, ValueError):
+                return None
+            return result if result >= 0 else None
+
+        return (
+            normalized(input_tokens),
+            normalized(output_tokens),
+            normalized(cached_input_tokens),
+            normalized(reasoning_tokens),
+        )
+
     def _generate_sync(self, model_request: ModelRequest) -> ModelResponse:
         body = json.dumps(
             self._payload(model_request),
@@ -206,10 +243,21 @@ class OpenAICompatibleBackend:
         if not isinstance(response_model, str) or not response_model.strip():
             response_model = model_request.model
 
+        (
+            input_tokens,
+            output_tokens,
+            cached_input_tokens,
+            reasoning_tokens,
+        ) = self._extract_usage(data)
+
         return ModelResponse(
             backend_id=self.backend_id,
             model=response_model,
             output_text=output_text,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            cached_input_tokens=cached_input_tokens,
+            reasoning_tokens=reasoning_tokens,
         )
 
     async def generate(self, model_request: ModelRequest) -> ModelResponse:
