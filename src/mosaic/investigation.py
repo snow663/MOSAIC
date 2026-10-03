@@ -120,6 +120,8 @@ class Investigation:
         source: str,
         unit: str | None = None,
         uncertainty: float | None = None,
+        context_id: str | None = None,
+        context_label: str | None = None,
         actor: AgentIdentity = KERNEL_IDENTITY,
     ) -> Observation:
         event = Observation.create_event(
@@ -129,6 +131,8 @@ class Investigation:
             source=source,
             unit=unit,
             uncertainty=uncertainty,
+            context_id=context_id,
+            context_label=context_label,
             actor=actor,
         )
         self._append_and_apply(event)
