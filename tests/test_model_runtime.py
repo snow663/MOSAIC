@@ -2,6 +2,7 @@ import asyncio
 import json
 
 from mosaic import AgentIdentity, Investigation, SQLiteEventStore
+from mosaic.agents.model_roles import _observation_context
 from mosaic.agents import (
     BackendLocation,
     ModelCoordinator,
@@ -338,3 +339,52 @@ def test_model_backed_research_cycle_runs_end_to_end(tmp_path):
             for request in backend.requests
         )
         assert store.verify_chain()
+
+
+def test_task_context_expands_to_complete_reported_event(tmp_path):
+    with SQLiteEventStore(tmp_path / "event-context.db") as store:
+        investigation = Investigation(store, "event-context")
+        rpm = investigation.record_observation(
+            name="rpm",
+            value=3200,
+            unit="rpm",
+            source="user",
+            context_id="CTX-3200",
+            context_label="reported event near 3200 RPM",
+        )
+        current = investigation.record_observation(
+            name="motor_current",
+            value=19,
+            unit="A",
+            source="user",
+            context_id="CTX-3200",
+            context_label="reported event near 3200 RPM",
+        )
+        unrelated = investigation.record_observation(
+            name="ambient_temperature",
+            value=22,
+            unit="C",
+            source="user",
+        )
+
+        payload = _observation_context(
+            investigation.snapshot(),
+            (rpm.observation_id,),
+        )
+
+        ids = {
+            item["observation_id"]
+            for item in payload["observations"]
+        }
+        assert ids == {rpm.observation_id, current.observation_id}
+        assert unrelated.observation_id not in ids
+        assert payload["reported_events"] == [
+            {
+                "context_id": "CTX-3200",
+                "label": "reported event near 3200 RPM",
+                "observation_ids": [
+                    rpm.observation_id,
+                    current.observation_id,
+                ],
+            }
+        ]
