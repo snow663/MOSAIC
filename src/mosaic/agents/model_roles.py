@@ -16,6 +16,7 @@ from .contracts import (
     PredictionProposal,
 )
 from .roles import (
+    ChallengeCategory,
     CoordinatorReport,
     ExaminationChallenge,
     ExaminationDisposition,
@@ -290,6 +291,8 @@ def _compact_transcript(
             "question": exchange.challenge.question,
             "targeted_claim": exchange.challenge.targeted_claim,
             "answer": exchange.response.answer,
+            "challenge_category": exchange.challenge.category.value,
+            "decision_impact": exchange.challenge.decision_impact,
         }
         for exchange in transcript
     ]
@@ -499,6 +502,11 @@ class ModelCoordinator:
                     "type": "array",
                     "items": {"type": "string"},
                 },
+                "clarification_questions": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "maxItems": 3,
+                },
             },
             [
                 "question",
@@ -506,6 +514,7 @@ class ModelCoordinator:
                 "observations",
                 "tasks",
                 "ambiguities",
+                "clarification_questions",
             ],
         )
         data = await _call_json(
@@ -523,7 +532,12 @@ class ModelCoordinator:
                 "Do not originate hypotheses, suggest likely answers, or contaminate "
                 "one specialist with another specialist's view. Keep the normalized "
                 "input and question brief, route only specialists that materially add "
-                "value, and keep ambiguities concise. Preserve direct relational "
+                "value, and keep ambiguities concise. Also identify up to three "
+                "high-value factual clarification questions that the user may be able "
+                "to answer immediately from known configuration, measurements, or "
+                "history. Ask only when the answer could materially narrow specialist "
+                "work; do not ask for a new experiment or measurement at this stage. "
+                "If no such question is worthwhile, return an empty list. Preserve direct relational "
                 "context: when the user explicitly reports multiple observations as "
                 "occurring in the same event, operating point, or time window, assign "
                 "them the same short context_key and a neutral context_label. Use null "
@@ -592,6 +606,10 @@ class ModelCoordinator:
             ),
             ambiguities=tuple(
                 str(item) for item in data.get("ambiguities", [])
+            ),
+            clarification_questions=tuple(
+                str(item)
+                for item in data.get("clarification_questions", [])
             ),
         )
 
@@ -891,6 +909,18 @@ class ModelExaminer:
                     "type": "array",
                     "items": {"type": "string"},
                 },
+                "challenge_category": {
+                    "anyOf": [
+                        {
+                            "type": "string",
+                            "enum": [item.value for item in ChallengeCategory],
+                        },
+                        {"type": "null"},
+                    ]
+                },
+                "decision_impact": {
+                    "anyOf": [{"type": "string"}, {"type": "null"}]
+                },
                 "disposition": {
                     "anyOf": [
                         {
@@ -924,6 +954,8 @@ class ModelExaminer:
                 "question",
                 "targeted_claim",
                 "evidence_refs",
+                "challenge_category",
+                "decision_impact",
                 "disposition",
                 "findings_summary",
                 "reservations",
@@ -940,9 +972,18 @@ class ModelExaminer:
             system=(
                 "You are the MOSAIC Examiner. You are an epistemic gatekeeper, "
                 "not a summarizer. Attempt to break the supplied Thinker proposal. "
-                "Ask one focused challenge of no more than 2 sentences when a "
-                "material weakness remains. Issue a terminal disposition only when "
-                "another challenge is not needed. Keep findings_summary to at most 3 "
+                "Ask one focused challenge of no more than 2 sentences only when "
+                "resolving it could materially change the disposition, confidence, "
+                "viability of a hypothesis, or the discriminating experiment. Classify "
+                "every challenge by challenge_category and state that material effect "
+                "in decision_impact. Never challenge the same concern category twice "
+                "in one examination; if a concern persists after the Thinker's answer, "
+                "carry it into reservations or unresolved questions instead. For safety, "
+                "once a safe prerequisite or abort condition has been identified, do "
+                "not keep optimizing procedural thresholds unless the proposed experiment "
+                "remains unsafe or impossible. Prefer scientific discrimination over "
+                "procedural refinement. Issue a terminal disposition when another "
+                "materially useful challenge is not needed. Keep findings_summary to at most 3 "
                 "sentences, reservations to at most 3 concise items, unresolved "
                 "questions to at most 3 concise items, and include statistics only "
                 "when they add information. Do not restate evidence already present. "
@@ -966,6 +1007,10 @@ class ModelExaminer:
                 },
                 "proposal": _proposal_payload(proposal),
                 "transcript": _compact_transcript(transcript),
+                "challenged_categories": [
+                    exchange.challenge.category.value
+                    for exchange in transcript
+                ],
             },
         )
 
@@ -974,6 +1019,12 @@ class ModelExaminer:
             if not isinstance(question, str) or not question.strip():
                 raise StructuredOutputError(
                     "Examiner chose challenge without a question"
+                )
+            category = data.get("challenge_category")
+            impact = data.get("decision_impact")
+            if category is None or not isinstance(impact, str) or not impact.strip():
+                raise StructuredOutputError(
+                    "Examiner challenge requires category and decision_impact"
                 )
             return ExaminationChallenge(
                 examiner_ref=self.identity.ref,
@@ -988,6 +1039,8 @@ class ModelExaminer:
                 evidence_refs=tuple(
                     str(item) for item in data.get("evidence_refs", [])
                 ),
+                category=ChallengeCategory(str(category)),
+                decision_impact=impact,
             )
 
         disposition = data.get("disposition")
