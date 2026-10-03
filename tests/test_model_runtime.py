@@ -5,12 +5,20 @@ from mosaic import AgentIdentity, Investigation, SQLiteEventStore
 from mosaic.agents.model_roles import _observation_context
 from mosaic.agents import (
     BackendLocation,
+    ChallengeCategory,
+    ExaminationChallenge,
+    ExaminationDisposition,
+    ExaminationExchange,
+    ExaminationResult,
     ModelCoordinator,
     ModelCrossDomainReviewer,
     ModelExaminer,
     ModelResponse,
     ModelThinker,
     ResearchCycle,
+    ThinkerProposal,
+    ThinkerResponse,
+    ThinkerTask,
 )
 
 
@@ -487,6 +495,98 @@ def test_interactive_review_accepts_second_input_before_thinkers(tmp_path):
         assert "review.requested" in audit_types
         assert "review.response_received" in audit_types
         assert store.verify_chain()
+
+
+class DuplicateChallengeBackend:
+    backend_id = "duplicate-challenge"
+    location = BackendLocation.REMOTE
+
+    def __init__(self):
+        self.calls = 0
+
+    async def generate(self, request):
+        self.calls += 1
+        payload = json.loads(request.input_text)
+        if self.calls == 1:
+            data = {
+                "action": "challenge",
+                "question": "Refine the same safety threshold again.",
+                "targeted_claim": None,
+                "evidence_refs": [],
+                "challenge_category": "safety",
+                "decision_impact": "It might refine the stop procedure.",
+                "disposition": None,
+                "findings_summary": None,
+                "reservations": [],
+                "unresolved_questions": [],
+                "statistics": [],
+            }
+        else:
+            assert payload["suppressed_duplicate_category"] == "safety"
+            data = {
+                "action": "disposition",
+                "question": None,
+                "targeted_claim": None,
+                "evidence_refs": [],
+                "challenge_category": None,
+                "decision_impact": None,
+                "disposition": "accepted_with_reservations",
+                "findings_summary": "The mechanism remains testable.",
+                "reservations": [
+                    "Safe stopping margin remains to be validated."
+                ],
+                "unresolved_questions": [],
+                "statistics": [],
+            }
+        return ModelResponse(
+            backend_id=self.backend_id,
+            model=request.model,
+            output_text=json.dumps(data),
+        )
+
+
+def test_examiner_retries_duplicate_challenge_category_as_disposition(tmp_path):
+    backend = DuplicateChallengeBackend()
+    examiner = ModelExaminer(
+        identity=AgentIdentity("examiner", "v1", "examiner"),
+        backend=backend,
+        model="hosted-model",
+    )
+    thinker_ref = "experimental:v1"
+    task = ThinkerTask(
+        assigned_to=thinker_ref,
+        question="Design a discriminating test.",
+        scope="Experimental design.",
+    )
+    proposal = ThinkerProposal(
+        thinker_ref=thinker_ref,
+        task_id=task.task_id,
+        summary="Run a controlled sweep.",
+    )
+    prior = ExaminationChallenge(
+        examiner_ref=examiner.identity.ref,
+        thinker_ref=thinker_ref,
+        proposal_id=proposal.proposal_id,
+        question="Define a safe prerequisite.",
+        category=ChallengeCategory.SAFETY,
+        decision_impact="Unsafe testing would invalidate the experiment.",
+    )
+    response = ThinkerResponse(
+        thinker_ref=thinker_ref,
+        challenge_id=prior.challenge_id,
+        answer="Use a conservative automatic stop.",
+    )
+    transcript = (ExaminationExchange(prior, response),)
+
+    with SQLiteEventStore(tmp_path / "duplicate.db") as store:
+        snapshot = Investigation(store, "duplicate").snapshot()
+        result = asyncio.run(
+            examiner.examine(snapshot, task, proposal, transcript)
+        )
+
+    assert isinstance(result, ExaminationResult)
+    assert result.disposition is ExaminationDisposition.ACCEPTED_WITH_RESERVATIONS
+    assert backend.calls == 2
 
 
 def test_task_context_expands_to_complete_reported_event(tmp_path):
