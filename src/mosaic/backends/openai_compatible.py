@@ -56,6 +56,7 @@ class OpenAICompatibleBackend:
         location: BackendLocation = BackendLocation.REMOTE,
         timeout_seconds: float = 120.0,
         structured_outputs: bool = True,
+        completion_token_field: str = "max_completion_tokens",
         extra_headers: dict[str, str] | None = None,
     ) -> None:
         self.backend_id = backend_id.strip()
@@ -72,6 +73,9 @@ class OpenAICompatibleBackend:
         self.location = BackendLocation(location)
         self.timeout_seconds = float(timeout_seconds)
         self.structured_outputs = bool(structured_outputs)
+        self.completion_token_field = completion_token_field.strip()
+        if not self.completion_token_field:
+            raise ValueError("completion_token_field must be non-empty")
         self.extra_headers = dict(extra_headers or {})
         self._api_key = api_key
         self._api_key_env = api_key_env
@@ -99,7 +103,7 @@ class OpenAICompatibleBackend:
             ],
         }
         if model_request.max_output_tokens is not None:
-            payload["max_completion_tokens"] = model_request.max_output_tokens
+            payload[self.completion_token_field] = model_request.max_output_tokens
 
         if model_request.response_schema is not None:
             schema = _plain_json(model_request.response_schema)
